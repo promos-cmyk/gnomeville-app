@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Gnomeville custom styles */
+body {
+  background: linear-gradient(to bottom, white, #f9fafb);
+}
+
+@keyframes gfloatdance {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(4px, -3px); }
+  50% { transform: translate(0, -6px); }
+  75% { transform: translate(-4px, -3px); }
+  100% { transform: translate(0, 0); }
+}
+
+.float-gnome {
+  animation: gfloatdance 3s ease-in-out infinite;
+  filter: drop-shadow(0 6px 6px rgba(0, 0, 0, 0.25));
+}
+
+.float-gnome-sm {
+  animation: gfloatdance 3.5s ease-in-out infinite;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.18));
+}
+
+#map {
+  height: 380px;
+  border-radius: 12px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.scan-box {
+  position: relative;
+  width: 90vw;
+  max-width: 520px;
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.scan-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  margin: 10%;
+}
