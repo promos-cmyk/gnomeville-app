@@ -94,6 +94,65 @@ const GlobalFX = () => (
       content:''; position:absolute; inset:12%; border:2px solid rgba(255,255,255,.8);
       border-radius:12px; box-shadow: 0 0 0 200vmax rgba(0,0,0,.35) inset;
     }
+    
+    /* Button press animation */
+    button:active:not(:disabled) {
+      transform: scale(0.96);
+      transition: transform 0.1s ease;
+    }
+    button {
+      transition: transform 0.1s ease, background-color 0.2s ease;
+    }
+    
+    /* Loading bar at top */
+    @keyframes loadProgress {
+      0% { width: 0%; }
+      100% { width: 100%; }
+    }
+    .loading-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #3b82f6, #10b981);
+      z-index: 10000;
+      animation: loadProgress 0.8s ease-out forwards;
+    }
+    
+    /* Success notification */
+    @keyframes slideInRight {
+      from { transform: translateX(400px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOutRight {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(400px); opacity: 0; }
+    }
+    .success-notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #10b981;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10001;
+      animation: slideInRight 0.3s ease-out;
+    }
+    .success-notification.hiding {
+      animation: slideOutRight 0.3s ease-out forwards;
+    }
+    
+    /* Pending approval styles */
+    .pending-item {
+      transition: all 0.3s ease;
+    }
+    .pending-item.approved {
+      opacity: 0;
+      transform: scale(0.9);
+    }
   `}</style>
 );
 
@@ -108,6 +167,41 @@ window.GV.celebrateRain = function(){
     el.style.animation=`fall ${2+Math.random()*2.5}s linear forwards`;
     document.body.appendChild(el);
     setTimeout(()=>document.body.removeChild(el), 4500);
+  }
+};
+
+/* ---------- Global action handler with loading + success feedback ---------- */
+window.GV.actionState = { loading: false, success: false };
+window.GV.actionHandlers = [];
+
+window.GV.performAction = async function(actionFn, successMessage = "Success!") {
+  // Show loading
+  window.GV.actionState.loading = true;
+  window.GV.actionHandlers.forEach(h => h());
+
+  // Simulate minimum loading time for visual feedback
+  const minLoadTime = new Promise(resolve => setTimeout(resolve, 400));
+  
+  try {
+    // Execute action
+    await actionFn();
+    await minLoadTime;
+    
+    // Show success
+    window.GV.actionState.loading = false;
+    window.GV.actionState.success = true;
+    window.GV.actionState.successMessage = successMessage;
+    window.GV.actionHandlers.forEach(h => h());
+    
+    // Clear success after notification
+    setTimeout(() => {
+      window.GV.actionState.success = false;
+      window.GV.actionHandlers.forEach(h => h());
+    }, 2500);
+  } catch (e) {
+    window.GV.actionState.loading = false;
+    window.GV.actionHandlers.forEach(h => h());
+    throw e;
   }
 };
 
@@ -132,6 +226,74 @@ window.Components.CelebrationModal = function({ gnomeImage, gnomeName, gnomeId, 
           Let's Go!
         </button>
       </div>
+    </div>
+  );
+};
+
+/* ---------- Loading Bar Component ---------- */
+window.Components.LoadingBar = function() {
+  return <div className="loading-bar" />;
+};
+
+/* ---------- Success Notification Component ---------- */
+window.Components.SuccessNotification = function({ message = "Success!", onClose }) {
+  const [hiding, setHiding] = useState(false);
+
+  useEffect(() => {
+    const hideTimer = setTimeout(() => {
+      setHiding(true);
+    }, 2000);
+
+    const removeTimer = setTimeout(() => {
+      onClose();
+    }, 2300);
+
+    return () => {
+      clearTimeout(hideTimer);
+      clearTimeout(removeTimer);
+    };
+  }, [onClose]);
+
+  return (
+    <div className={`success-notification ${hiding ? 'hiding' : ''}`}>
+      ✓ {message}
+    </div>
+  );
+};
+
+/* ---------- Pending Approvals Component ---------- */
+window.Components.PendingApprovals = function({ items, onApprove }) {
+  const [approvedIds, setApprovedIds] = useState(new Set());
+
+  function handleApprove(id) {
+    setApprovedIds(prev => new Set([...prev, id]));
+    setTimeout(() => {
+      onApprove(id);
+    }, 300);
+  }
+
+  if (!items || items.length === 0) return null;
+
+  return (
+    <div className="rounded-2xl border p-3 bg-amber-50 border-amber-200 mb-4">
+      <h3 className="font-semibold text-sm mb-2 text-amber-900">⏳ Pending Approvals</h3>
+      <ul className="space-y-1.5">
+        {items.map(item => (
+          <li 
+            key={item.id} 
+            className={`text-xs flex items-center gap-2 pending-item ${approvedIds.has(item.id) ? 'approved' : ''}`}
+          >
+            {item.approved ? (
+              <span className="text-green-600 font-bold">✓</span>
+            ) : (
+              <span className="text-amber-600">•</span>
+            )}
+            <span className={item.approved ? 'text-green-700 line-through' : 'text-amber-900'}>
+              {item.label}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 };
@@ -854,37 +1016,45 @@ function Advertiser({user}){
   const spent=myCharges.reduce((a,b)=>a+(b.amount||0),0);
 
   function saveCardOnFile(){
-    const adv=(window.__advertisers||[]).find(a=>a.id===advIdRef.current);
-    if(!adv) return;
-    adv.cardOnFile=true; setCard(true);
-    setMsg("Card authorized for per-unlock charges.");
+    window.GV.performAction(async () => {
+      const adv=(window.__advertisers||[]).find(a=>a.id===advIdRef.current);
+      if(!adv) return;
+      adv.cardOnFile=true; setCard(true);
+      setMsg("Card authorized for per-unlock charges.");
+    }, "Card Authorized!");
   }
 
   function createCoupon(){
-    if(!card){ setMsg("Please add a card on file to create paid coupons."); return; }
-    const id='cp-'+Math.random().toString(36).slice(2,8);
-    const s = start? new Date(start).getTime(): undefined;
-    const e = end? new Date(end).getTime(): undefined;
-    window.__coupons.push({
-      id, advertiserId:advIdRef.current, system:false,
-      title, desc, target, gnomeId: target==='one'? Number(gnomeId): undefined,
-      startAt:s, endAt:e, scanCap: Number(scanCap)||0,
-      unlocks:0, active, blocked:false
-    });
-    setMsg("Coupon created.");
+    window.GV.performAction(async () => {
+      if(!card){ setMsg("Please add a card on file to create paid coupons."); return; }
+      const id='cp-'+Math.random().toString(36).slice(2,8);
+      const s = start? new Date(start).getTime(): undefined;
+      const e = end? new Date(end).getTime(): undefined;
+      window.__coupons.push({
+        id, advertiserId:advIdRef.current, system:false,
+        title, desc, target, gnomeId: target==='one'? Number(gnomeId): undefined,
+        startAt:s, endAt:e, scanCap: Number(scanCap)||0,
+        unlocks:0, active, blocked:false
+      });
+      setMsg("Coupon created.");
+    }, "Coupon Created!");
   }
 
   function toggleActive(c){
-    c.active = !c.active;
-    setMsg(`Coupon ${c.active?'activated':'paused'}.`);
+    window.GV.performAction(async () => {
+      c.active = !c.active;
+      setMsg(`Coupon ${c.active?'activated':'paused'}.`);
+    }, c.active ? "Coupon Activated!" : "Coupon Paused!");
   }
 
   function sendWalletPush(coupon){
-    let sent=0;
-    for(const [device, set] of Object.entries(window.__walletSubs||{})){
-      if(set.has(coupon.id)) sent++;
-    }
-    alert(`Push sent to ${sent} wallet devices.\n\n"${pushText}"`);
+    window.GV.performAction(async () => {
+      let sent=0;
+      for(const [device, set] of Object.entries(window.__walletSubs||{})){
+        if(set.has(coupon.id)) sent++;
+      }
+      alert(`Push sent to ${sent} wallet devices.\n\n"${pushText}"`);
+    }, "Push Sent!");
   }
 
   return (
@@ -1081,51 +1251,68 @@ function Partners({user}){
     });
 
   function saveProfile(){
-    const p=partnerRef.current; if(!p) return;
-    p.establishment=est; p.address=addr; setMsg("Profile saved.");
+    window.GV.performAction(async () => {
+      const p=partnerRef.current; if(!p) return;
+      p.establishment=est; p.address=addr; setMsg("Profile saved.");
+    }, "Profile Saved!");
   }
   function saveCard(){
-    const p=partnerRef.current; if(!p) return;
-    p.cardOnFile=true; setCard(true); setMsg("Card on file & authorized.");
+    window.GV.performAction(async () => {
+      const p=partnerRef.current; if(!p) return;
+      p.cardOnFile=true; setCard(true); setMsg("Card on file & authorized.");
+    }, "Card Authorized!");
   }
   function placeBid(){
-    const p=partnerRef.current; if(!p) return;
-    if(!p.cardOnFile){ setMsg("Add a card on file before bidding."); return; }
-    if(!est || !addr){ setMsg("Please provide establishment and address before bidding."); return; }
-    const amt=Math.max(0,Number(bid)||0);
-    window.__partnerBids.push({id: Number(bidGnome), amt, partnerId:p.id, ts:Date.now()});
-    setMsg(`Bid placed for #${bidGnome} at ${window.GV.fmtMoney(amt)}.`);
+    window.GV.performAction(async () => {
+      const p=partnerRef.current; if(!p) return;
+      if(!p.cardOnFile){ setMsg("Add a card on file before bidding."); return; }
+      if(!est || !addr){ setMsg("Please provide establishment and address before bidding."); return; }
+      const amt=Math.max(0,Number(bid)||0);
+      window.__partnerBids.push({id: Number(bidGnome), amt, partnerId:p.id, ts:Date.now()});
+      setMsg(`Bid placed for #${bidGnome} at ${window.GV.fmtMoney(amt)}.`);
+    }, "Bid Placed!");
   }
   function toggleActivate(gid){
-    const a=window.__gnomeAssignments[gid]; if(!a) return;
-    a.active=!a.active;
-    setMsg(`Gnome #${gid} is now ${a.active?'Active':'Inactive'}.`);
+    window.GV.performAction(async () => {
+      const a=window.__gnomeAssignments[gid]; if(!a) return;
+      a.active=!a.active;
+      setMsg(`Gnome #${gid} is now ${a.active?'Active':'Inactive'}.`);
+    }, a?.active ? "Gnome Activated!" : "Gnome Deactivated!");
   }
   function pushHint(gnomeId){
-    const expiresAt=Date.now() + Math.max(1,Number(hintMinutes)||10)*60000;
-    window.__partnerHints.push({gnomeId, text:hintText, expiresAt, partnerId: partnerRef.current.id});
-    setMsg(`Hint pushed for #${gnomeId} for ${hintMinutes} min.`);
+    window.GV.performAction(async () => {
+      const expiresAt=Date.now() + Math.max(1,Number(hintMinutes)||10)*60000;
+      window.__partnerHints.push({gnomeId, text:hintText, expiresAt, partnerId: partnerRef.current.id});
+      setMsg(`Hint pushed for #${gnomeId} for ${hintMinutes} min.`);
+    }, "Hint Pushed!");
   }
 
   // submit a trigger image to Admin (goes to review queue)
   function submitTriggerImage(gnomeId){
-    const p=partnerRef.current; if(!p) return;
-    const file = uploadFiles[gnomeId];
-    if(!file){ setMsg(`Choose an image for #${gnomeId} first.`); return; }
-    const reader=new FileReader();
-    reader.onload=async (e)=>{
-      const dataUrl=e.target.result;
-      try{
-        const hash=await window.GV.aHashFromDataUrl(dataUrl);
-        window.__submittedTriggers.push({partnerId:p.id,gnomeId:Number(gnomeId),dataUrl, aHash:hash, ts:Date.now()});
-        setMsg(`Submitted trigger for #${gnomeId} to Admin.`);
-        // Clear this file
-        setUploadFiles({...uploadFiles, [gnomeId]: null});
-      }catch(err){
-        setMsg("Failed to process image.");
-      }
-    };
-    reader.readAsDataURL(file);
+    window.GV.performAction(async () => {
+      const p=partnerRef.current; if(!p) return;
+      const file = uploadFiles[gnomeId];
+      if(!file){ setMsg(`Choose an image for #${gnomeId} first.`); return; }
+      
+      return new Promise((resolve) => {
+        const reader=new FileReader();
+        reader.onload=async (e)=>{
+          const dataUrl=e.target.result;
+          try{
+            const hash=await window.GV.aHashFromDataUrl(dataUrl);
+            window.__submittedTriggers.push({partnerId:p.id,gnomeId:Number(gnomeId),dataUrl, aHash:hash, ts:Date.now(), approved: false});
+            setMsg(`Submitted trigger for #${gnomeId} to Admin.`);
+            // Clear this file
+            setUploadFiles({...uploadFiles, [gnomeId]: null});
+            resolve();
+          }catch(err){
+            setMsg("Failed to process image.");
+            resolve();
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    }, "Trigger Image Submitted!");
   }
 
   function highestFor(id){
@@ -1138,6 +1325,27 @@ function Partners({user}){
   return (
     <div className="space-y-4">
       <window.Components.PartnersIntro />
+      
+      {/* Pending Approvals */}
+      {(() => {
+        const p = partnerRef.current;
+        if (!p) return null;
+        const pendingTriggers = (window.__submittedTriggers || []).filter(t => t.partnerId === p.id);
+        if (pendingTriggers.length === 0) return null;
+        
+        const pendingItems = pendingTriggers.map(t => {
+          const gnome = window.GV.GNOMES.find(g => g.id === t.gnomeId);
+          const approved = window.__triggerImages[t.gnomeId]?.aHash === t.aHash;
+          return {
+            id: `trigger-${t.gnomeId}-${t.ts}`,
+            label: `Trigger image for #${t.gnomeId} ${gnome?.name || ''}`,
+            approved
+          };
+        });
+        
+        return <window.Components.PendingApprovals items={pendingItems} onApprove={() => {}} />;
+      })()}
+      
       {/* profile */}
       <div className="rounded-2xl border p-3 bg-white">
         <div className="flex items-center justify-between">
@@ -1298,82 +1506,99 @@ function Admin({user}) {
   }
 
   function closeBidsAndAssignWinners(){
-    const newCelebrations = []; // Track celebrations for this cycle
-    window.GV.GNOMES.forEach(g=>{
-      let max=0, winner=null;
-      for(const r of (window.__partnerBids||[])){ if(r.id===g.id && r.amt>max){ max=r.amt; winner=r.partnerId; } }
-      const assign=window.__gnomeAssignments[g.id] || {partnerId:null,active:false,previousPartnerId:null};
-      assign.previousPartnerId = assign.partnerId || null;
-      assign.partnerId = winner || assign.partnerId;
-      assign.active = false;
-      window.__gnomeAssignments[g.id]=assign;
-      if(winner && max>0){
-        const p=(window.__partners||[]).find(x=>x.id===winner);
-        if(p?.cardOnFile){
-          window.__charges.push({type:'partner',partnerId:winner,amount:max,ts:Date.now(),note:`Winning bid for #${g.id}`});
+    window.GV.performAction(async () => {
+      const newCelebrations = []; // Track celebrations for this cycle
+      window.GV.GNOMES.forEach(g=>{
+        let max=0, winner=null;
+        for(const r of (window.__partnerBids||[])){ if(r.id===g.id && r.amt>max){ max=r.amt; winner=r.partnerId; } }
+        const assign=window.__gnomeAssignments[g.id] || {partnerId:null,active:false,previousPartnerId:null};
+        assign.previousPartnerId = assign.partnerId || null;
+        assign.partnerId = winner || assign.partnerId;
+        assign.active = false;
+        window.__gnomeAssignments[g.id]=assign;
+        if(winner && max>0){
+          const p=(window.__partners||[]).find(x=>x.id===winner);
+          if(p?.cardOnFile){
+            window.__charges.push({type:'partner',partnerId:winner,amount:max,ts:Date.now(),note:`Winning bid for #${g.id}`});
+          }
+          // Create celebration event for the winning partner
+          newCelebrations.push({
+            partnerId: winner,
+            gnomeId: g.id,
+            gnomeName: g.name,
+            gnomeImage: g.image,
+            cycleId: window.__cycleId,
+            ts: Date.now()
+          });
         }
-        // Create celebration event for the winning partner
-        newCelebrations.push({
-          partnerId: winner,
-          gnomeId: g.id,
-          gnomeName: g.name,
-          gnomeImage: g.image,
-          cycleId: window.__cycleId,
-          ts: Date.now()
-        });
-      }
-    });
-    // Store all celebrations for partners to retrieve
-    window.__partnerCelebrations.push(...newCelebrations);
-    window.__partnerBids = [];
-    window.__deviceCouponGrants = {};
-    window.__cycleId = (window.__cycleId||1)+1;
-    setMsg(`Bids closed, ${newCelebrations.length} winner(s) assigned, cycle advanced.`);
+      });
+      // Store all celebrations for partners to retrieve
+      window.__partnerCelebrations.push(...newCelebrations);
+      window.__partnerBids = [];
+      window.__deviceCouponGrants = {};
+      window.__cycleId = (window.__cycleId||1)+1;
+      setMsg(`Bids closed, ${newCelebrations.length} winner(s) assigned, cycle advanced.`);
+    }, "Bids Closed & Winners Assigned!");
   }
 
   function createAdminCoupon(){
-    const id='cp-'+Math.random().toString(36).slice(2,8);
-    const s=cStart?new Date(cStart).getTime():undefined;
-    const e=cEnd?new Date(cEnd).getTime():undefined;
-    window.__coupons.push({
-      id, system:true, advertiserId:undefined,
-      title:cTitle, desc:cDesc, target:cTarget, gnomeId:cTarget==='one'?Number(cGnome):undefined,
-      startAt:s, endAt:e, scanCap:Number(cCap)||0, unlocks:0, active:cActive, blocked:false
-    });
-    setMsg("Admin coupon created.");
+    window.GV.performAction(async () => {
+      const id='cp-'+Math.random().toString(36).slice(2,8);
+      const s=cStart?new Date(cStart).getTime():undefined;
+      const e=cEnd?new Date(cEnd).getTime():undefined;
+      window.__coupons.push({
+        id, system:true, advertiserId:undefined,
+        title:cTitle, desc:cDesc, target:cTarget, gnomeId:cTarget==='one'?Number(cGnome):undefined,
+        startAt:s, endAt:e, scanCap:Number(cCap)||0, unlocks:0, active:cActive, blocked:false
+      });
+      setMsg("Admin coupon created.");
+    }, "Admin Coupon Created!");
   }
 
   function blockAdvertiser(a,flag){
-    a.blocked=flag;
-    setMsg(`${flag?'Blocked':'Unblocked'} advertiser.`);
+    window.GV.performAction(async () => {
+      a.blocked=flag;
+      setMsg(`${flag?'Blocked':'Unblocked'} advertiser.`);
+    }, flag ? "Advertiser Blocked!" : "Advertiser Unblocked!");
   }
   function blockCoupon(c,flag){
-    c.blocked=flag;
-    setMsg(`${flag?'Blocked':'Unblocked'} coupon.`);
+    window.GV.performAction(async () => {
+      c.blocked=flag;
+      setMsg(`${flag?'Blocked':'Unblocked'} coupon.`);
+    }, flag ? "Coupon Blocked!" : "Coupon Unblocked!");
   }
 
   function approveSubmission(idx){
-    const item=(window.__submittedTriggers||[])[idx]; if(!item) return;
-    window.__triggerImages[item.gnomeId]={ dataUrl:item.dataUrl, aHash:item.aHash };
-    window.__submittedTriggers.splice(idx,1);
-    setMsg(`Approved trigger for #${item.gnomeId}.`);
+    window.GV.performAction(async () => {
+      const item=(window.__submittedTriggers||[])[idx]; if(!item) return;
+      window.__triggerImages[item.gnomeId]={ dataUrl:item.dataUrl, aHash:item.aHash };
+      item.approved = true; // Mark as approved
+      setMsg(`Approved trigger for #${item.gnomeId}.`);
+    }, "Trigger Approved!");
   }
   function rejectSubmission(idx){
-    (window.__submittedTriggers||[]).splice(idx,1);
-    setMsg("Submission rejected.");
+    window.GV.performAction(async () => {
+      (window.__submittedTriggers||[]).splice(idx,1);
+      setMsg("Submission rejected.");
+    }, "Submission Rejected!");
   }
   function uploadDirectTrigger(gnomeId, file){
-    if(!file) return;
-    const reader=new FileReader();
-    reader.onload=async (e)=>{
-      const dataUrl=e.target.result;
-      try{
-        const hash=await window.GV.aHashFromDataUrl(dataUrl);
-        window.__triggerImages[gnomeId]={ dataUrl, aHash:hash };
-        setMsg(`Trigger updated for #${gnomeId}.`);
-      }catch(err){ setMsg("Failed to process image."); }
-    };
-    reader.readAsDataURL(file);
+    window.GV.performAction(async () => {
+      if(!file) return;
+      return new Promise((resolve) => {
+        const reader=new FileReader();
+        reader.onload=async (e)=>{
+          const dataUrl=e.target.result;
+          try{
+            const hash=await window.GV.aHashFromDataUrl(dataUrl);
+            window.__triggerImages[gnomeId]={ dataUrl, aHash:hash };
+            setMsg(`Trigger updated for #${gnomeId}.`);
+            resolve();
+          }catch(err){ setMsg("Failed to process image."); resolve(); }
+        };
+        reader.readAsDataURL(file);
+      });
+    }, "Trigger Updated!");
   }
 
   const coupons=window.__coupons||[];
@@ -1603,6 +1828,17 @@ export default function App(){
   const [user,setUser]=useState(window.GV.loadUser());
   const [tab,setTab]=useState(role==='participant'?'participant':role);
   const [needSignup,setNeedSignup]=useState(!user?.profileComplete);
+  const [, forceUpdate] = useState({});
+
+  // Subscribe to action state changes
+  useEffect(() => {
+    const handler = () => forceUpdate({});
+    window.GV.actionHandlers.push(handler);
+    return () => {
+      const idx = window.GV.actionHandlers.indexOf(handler);
+      if (idx > -1) window.GV.actionHandlers.splice(idx, 1);
+    };
+  }, []);
 
   function finishSignup(profile){
     if(profile){ setUser(profile); }
@@ -1612,6 +1848,18 @@ export default function App(){
   return (
     <div className="min-h-screen">
       <GlobalFX />
+      
+      {/* Loading Bar */}
+      {window.GV.actionState.loading && <window.Components.LoadingBar />}
+      
+      {/* Success Notification */}
+      {window.GV.actionState.success && (
+        <window.Components.SuccessNotification 
+          message={window.GV.actionState.successMessage || "Success!"} 
+          onClose={() => {}}
+        />
+      )}
+
       <header className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <h1 className="text-2xl md:text-3xl font-black flex items-center gap-2">
