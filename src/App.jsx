@@ -73,6 +73,10 @@ if(!window.__costPerUnlock) window.__costPerUnlock=1;
 if(!window.__triggerImages) window.__triggerImages = {};
 if(!window.__submittedTriggers) window.__submittedTriggers = [];
 
+/* NEW: Celebration events for partner wins & advertiser unlocks */
+if(!window.__partnerCelebrations) window.__partnerCelebrations = [];
+if(!window.__advertiserUnlockEvents) window.__advertiserUnlockEvents = [];
+
 /* ---------- Global CSS & Celebration FX ---------- */
 const GlobalFX = () => (
   <style>{`
@@ -105,6 +109,31 @@ window.GV.celebrateRain = function(){
     document.body.appendChild(el);
     setTimeout(()=>document.body.removeChild(el), 4500);
   }
+};
+
+/* ---------- Celebration Modal Component ---------- */
+window.Components.CelebrationModal = function({ gnomeImage, gnomeName, gnomeId, message, onClose }) {
+  useEffect(() => {
+    window.GV.celebrateRain();
+  }, []);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9998]" onClick={onClose}>
+      <div className="bg-white rounded-3xl p-8 max-w-md mx-4 text-center shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="mb-4">
+          <img src={gnomeImage} alt={gnomeName} className="w-32 h-32 mx-auto float-gnome" />
+        </div>
+        <h2 className="text-2xl font-black mb-2">🎉 Congratulations!</h2>
+        <p className="text-lg mb-4">{message}</p>
+        <button 
+          onClick={onClose}
+          className="rounded-full bg-black text-white px-6 py-2 hover:bg-gray-800"
+        >
+          Let's Go!
+        </button>
+      </div>
+    </div>
+  );
 };
 
 /* ---------- Utils ---------- */
@@ -430,6 +459,16 @@ function Participant({user}){
           note:`Unlock ${c.title}`,
           deviceId:window.GV.DEVICE_ID,
           gnomeId
+        });
+        // Create unlock event for advertiser celebration
+        window.__advertiserUnlockEvents.push({
+          advertiserId: adv.id,
+          gnomeId,
+          gnomeName: window.GV.GNOMES.find(g => g.id === gnomeId)?.name,
+          gnomeImage: window.GV.GNOMES.find(g => g.id === gnomeId)?.image,
+          couponTitle: c.title,
+          ts: Date.now(),
+          claimed: false
         });
       }
 
@@ -776,6 +815,8 @@ function Participant({user}){
 ============================================================================= */
 function Advertiser({user}){
   const advIdRef=useRef(null);
+  const [celebration, setCelebration] = useState(null);
+  
   useEffect(()=>{
     if(!user) return;
     let adv=(window.__advertisers||[]).find(a=>a.email===user.email) ||
@@ -786,6 +827,14 @@ function Advertiser({user}){
     }
     advIdRef.current=adv.id;
     setCard(!!adv.cardOnFile);
+
+    // Check for unclaimed unlock celebrations
+    const myUnlockEvents = (window.__advertiserUnlockEvents || []).filter(e => e.advertiserId === adv.id && !e.claimed);
+    if (myUnlockEvents.length > 0) {
+      const firstEvent = myUnlockEvents[0];
+      setCelebration(firstEvent);
+      firstEvent.claimed = true;
+    }
   },[user]);
 
   const [title,setTitle]=useState("20% off up to $500");
@@ -870,6 +919,50 @@ function Advertiser({user}){
         {msg && <div className="mt-2 text-xs text-green-700">{msg}</div>}
       </div>
 
+      {/* Unlocked Gnomes Section */}
+      <div className="rounded-2xl border p-3 bg-white">
+        <h3 className="font-semibold text-sm mb-2">Unlocked Gnomes</h3>
+        <div className="text-[11px] text-gray-600 mb-3">Your coupons unlocked via gnome scans</div>
+        {(() => {
+          // Calculate unlocks per gnome from charges
+          const unlocksByGnome = {};
+          myCharges.forEach(charge => {
+            if (!charge.gnomeId) return;
+            if (!unlocksByGnome[charge.gnomeId]) {
+              const gnome = window.GV.GNOMES.find(g => g.id === charge.gnomeId);
+              unlocksByGnome[charge.gnomeId] = {
+                gnomeId: charge.gnomeId,
+                gnomeName: gnome?.name || `Gnome ${charge.gnomeId}`,
+                gnomeImage: gnome?.image,
+                scans: 0,
+                charges: 0
+              };
+            }
+            unlocksByGnome[charge.gnomeId].scans++;
+            unlocksByGnome[charge.gnomeId].charges += charge.amount || 0;
+          });
+
+          const unlockedList = Object.values(unlocksByGnome);
+          
+          if (unlockedList.length === 0) {
+            return <div className="text-xs text-gray-500">No unlocks yet. Create coupons to start earning!</div>;
+          }
+
+          return (
+            <div className="grid md:grid-cols-5 gap-2">
+              {unlockedList.map(unlock => (
+                <div key={unlock.gnomeId} className="rounded border p-2 text-center">
+                  <img src={unlock.gnomeImage} alt={unlock.gnomeName} className="w-12 h-12 mx-auto object-contain mb-2" />
+                  <div className="font-semibold text-xs">#{unlock.gnomeId} {unlock.gnomeName}</div>
+                  <div className="text-[11px] text-gray-600 mt-1">Scans: <span className="font-mono">{unlock.scans}</span></div>
+                  <div className="text-[11px] text-gray-600">Charges: <span className="font-mono">{window.GV.fmtMoney(unlock.charges)}</span></div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+      </div>
+
       {/* create/manage coupons */}
       <div className="rounded-2xl border p-3 bg-white">
         <h3 className="font-semibold text-sm mb-2">Create / Manage Coupons</h3>
@@ -927,6 +1020,17 @@ function Advertiser({user}){
       </div>
 
       <window.Components.PopularityGrid title="Gnome Popularity — 30d (Active state shown)" showActive={true}/>
+
+      {/* Celebration Modal */}
+      {celebration && (
+        <window.Components.CelebrationModal
+          gnomeImage={celebration.gnomeImage}
+          gnomeName={celebration.gnomeName}
+          gnomeId={celebration.gnomeId}
+          message={`Gnome #${celebration.gnomeId} ${celebration.gnomeName} was just unlocked! "${celebration.couponTitle}" coupon granted.`}
+          onClose={() => setCelebration(null)}
+        />
+      )}
     </div>
   );
 }
@@ -944,6 +1048,8 @@ function Partners({user}){
   const [hintMinutes,setHintMinutes]=useState(15);
   const [uploadGnome,setUploadGnome]=useState(1);
   const [uploadFile,setUploadFile]=useState(null);
+  const [celebration,setCelebration]=useState(null);
+  const [uploadFiles, setUploadFiles] = useState({}); // Track files per gnome {gnomeId: file}
 
   useEffect(()=>{
     if(!user) return;
@@ -954,6 +1060,16 @@ function Partners({user}){
       window.__partners.push(p);
     }
     partnerRef.current=p; setEst(p.establishment||""); setAddr(p.address||""); setCard(!!p.cardOnFile);
+
+    // Check for unclaimed celebrations
+    const myCelebrations = (window.__partnerCelebrations || []).filter(c => c.partnerId === p.id && !c.claimed);
+    if (myCelebrations.length > 0) {
+      // Show first unclaimed celebration
+      const firstCelebration = myCelebrations[0];
+      setCelebration(firstCelebration);
+      // Mark as claimed
+      firstCelebration.claimed = true;
+    }
   },[user]);
 
   const myWins = window.GV.GNOMES.filter(g=>window.__gnomeAssignments[g.id]?.partnerId===partnerRef.current?.id)
@@ -992,22 +1108,24 @@ function Partners({user}){
   }
 
   // submit a trigger image to Admin (goes to review queue)
-  function submitTriggerImage(){
+  function submitTriggerImage(gnomeId){
     const p=partnerRef.current; if(!p) return;
-    if(!uploadFile){ setMsg("Choose an image first."); return; }
+    const file = uploadFiles[gnomeId];
+    if(!file){ setMsg(`Choose an image for #${gnomeId} first.`); return; }
     const reader=new FileReader();
     reader.onload=async (e)=>{
       const dataUrl=e.target.result;
       try{
         const hash=await window.GV.aHashFromDataUrl(dataUrl);
-        window.__submittedTriggers.push({partnerId:p.id,gnomeId:Number(uploadGnome),dataUrl, aHash:hash, ts:Date.now()});
-        setMsg(`Submitted trigger for #${uploadGnome} to Admin.`);
-        setUploadFile(null);
+        window.__submittedTriggers.push({partnerId:p.id,gnomeId:Number(gnomeId),dataUrl, aHash:hash, ts:Date.now()});
+        setMsg(`Submitted trigger for #${gnomeId} to Admin.`);
+        // Clear this file
+        setUploadFiles({...uploadFiles, [gnomeId]: null});
       }catch(err){
         setMsg("Failed to process image.");
       }
     };
-    reader.readAsDataURL(uploadFile);
+    reader.readAsDataURL(file);
   }
 
   function highestFor(id){
@@ -1103,21 +1221,47 @@ function Partners({user}){
           ))}
         </div>
 
-        <div className="mt-4 rounded border p-2 text-xs">
-          <div className="font-semibold mb-1">Submit Trigger Image to Admin</div>
-          <div className="grid md:grid-cols-3 gap-2 items-end">
-            <label className="grid gap-1">Gnome
-              <select className="border rounded px-2 py-1" value={uploadGnome} onChange={e=>setUploadGnome(e.target.value)}>
-                {myWins.map(w=><option key={w.gnome.id} value={w.gnome.id}>#{w.gnome.id} {w.gnome.name}</option>)}
-              </select>
-            </label>
-            <input type="file" accept="image/*" className="border rounded px-2 py-1" onChange={e=>setUploadFile(e.target.files?.[0]||null)}/>
-            <button className="rounded bg-black text-white px-3 py-1.5" onClick={submitTriggerImage}>Submit Image</button>
-          </div>
+        <div className="mt-4 space-y-3">
+          <div className="font-semibold text-xs">Submit Trigger Images to Admin</div>
+          {myWins.length === 0 && <div className="text-gray-500 text-xs">No assigned gnomes yet.</div>}
+          {myWins.map(({gnome}) => (
+            <div key={gnome.id} className="rounded border p-2 text-xs">
+              <div className="flex items-center gap-2 mb-2">
+                <img src={gnome.image} className="w-5 h-5 object-contain" alt=""/>
+                <div className="font-semibold">#{gnome.id} {gnome.name}</div>
+              </div>
+              <div className="flex gap-2 items-end">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  className="border rounded px-2 py-1 flex-1" 
+                  onChange={e => setUploadFiles({...uploadFiles, [gnome.id]: e.target.files?.[0]||null})}
+                />
+                <button 
+                  className="rounded bg-black text-white px-3 py-1.5" 
+                  onClick={() => submitTriggerImage(gnome.id)}
+                  disabled={!uploadFiles[gnome.id]}
+                >
+                  Submit Image
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
       <window.Components.PopularityGrid title="Gnome Popularity — Last 30 Days" showActive={true}/>
+
+      {/* Celebration Modal */}
+      {celebration && (
+        <window.Components.CelebrationModal
+          gnomeImage={celebration.gnomeImage}
+          gnomeName={celebration.gnomeName}
+          gnomeId={celebration.gnomeId}
+          message={`You won Gnome #${celebration.gnomeId} ${celebration.gnomeName}! Upload a trigger image below.`}
+          onClose={() => setCelebration(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1154,6 +1298,7 @@ function Admin({user}) {
   }
 
   function closeBidsAndAssignWinners(){
+    const newCelebrations = []; // Track celebrations for this cycle
     window.GV.GNOMES.forEach(g=>{
       let max=0, winner=null;
       for(const r of (window.__partnerBids||[])){ if(r.id===g.id && r.amt>max){ max=r.amt; winner=r.partnerId; } }
@@ -1167,12 +1312,23 @@ function Admin({user}) {
         if(p?.cardOnFile){
           window.__charges.push({type:'partner',partnerId:winner,amount:max,ts:Date.now(),note:`Winning bid for #${g.id}`});
         }
+        // Create celebration event for the winning partner
+        newCelebrations.push({
+          partnerId: winner,
+          gnomeId: g.id,
+          gnomeName: g.name,
+          gnomeImage: g.image,
+          cycleId: window.__cycleId,
+          ts: Date.now()
+        });
       }
     });
+    // Store all celebrations for partners to retrieve
+    window.__partnerCelebrations.push(...newCelebrations);
     window.__partnerBids = [];
     window.__deviceCouponGrants = {};
     window.__cycleId = (window.__cycleId||1)+1;
-    setMsg("Bids closed, winners assigned, cycle advanced.");
+    setMsg(`Bids closed, ${newCelebrations.length} winner(s) assigned, cycle advanced.`);
   }
 
   function createAdminCoupon(){
