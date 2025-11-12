@@ -73,6 +73,40 @@ if(!window.__costPerUnlock) window.__costPerUnlock=1;
 if(!window.__triggerImages) window.__triggerImages = {};
 if(!window.__submittedTriggers) window.__submittedTriggers = [];
 
+/* ---------- Global CSS & Celebration FX ---------- */
+const GlobalFX = () => (
+  <style>{`
+    @keyframes gfloatdance {
+      0% { transform: translate(0,0) rotate(0deg) }
+      25% { transform: translate(4px,-3px) rotate(2deg) }
+      50% { transform: translate(0,-6px) rotate(-2deg) }
+      75% { transform: translate(-4px,-3px) rotate(1deg) }
+      100% { transform: translate(0,0) rotate(0deg) }
+    }
+    .float-gnome, .float-gnome-sm { animation: gfloatdance 3.2s ease-in-out infinite; }
+    .coin-nug-fall { position: fixed; top: -5vh; pointer-events: none; z-index: 9999; }
+    @keyframes fall { to { transform: translateY(110vh) rotate(360deg); opacity: 0.9; } }
+    .scan-overlay::after{
+      content:''; position:absolute; inset:12%; border:2px solid rgba(255,255,255,.8);
+      border-radius:12px; box-shadow: 0 0 0 200vmax rgba(0,0,0,.35) inset;
+    }
+  `}</style>
+);
+
+window.GV.celebrateRain = function(){
+  const N=60, symbols=['🪙','🌿','🪙','🌿','🪙'];
+  for(let i=0;i<N;i++){
+    const el=document.createElement('div');
+    el.textContent=symbols[i%symbols.length];
+    el.className='coin-nug-fall';
+    el.style.left=(Math.random()*100)+'vw';
+    el.style.fontSize=(16+Math.random()*22)+'px';
+    el.style.animation=`fall ${2+Math.random()*2.5}s linear forwards`;
+    document.body.appendChild(el);
+    setTimeout(()=>document.body.removeChild(el), 4500);
+  }
+};
+
 /* ---------- Utils ---------- */
 window.GV.fmtMoney=n=>'$'+Number(n||0).toFixed(2);
 window.GV.nowMs   =()=>Date.now();
@@ -92,6 +126,35 @@ window.GV.popularity30d=()=>{
   if(rows.every(r=>r.scans===0)){ rows.forEach(r=>r.scans=50+((r.id*31)%200)); }
   return rows;
 };
+
+/* ---------- QR helpers ---------- */
+window.GV.qrDataFor = (gnomeId)=> `GNOME:${gnomeId}`;
+window.GV.qrPngUrl  = (data, size=160)=> `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(data)}`;
+window.GV.qrSvgUrl  = (data, size=180)=> `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&format=svg&data=${encodeURIComponent(data)}`;
+
+window.GV.downloadSvg = async (svgUrl, filename) => {
+  try {
+    const res = await fetch(svgUrl);
+    if (!res.ok) throw new Error("SVG fetch failed");
+    const blob = await res.blob();
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(href);
+  } catch (e) {
+    alert("Failed to download SVG.");
+    console.warn(e);
+  }
+};
+
+/* Simple QR decoder NOTE:
+   We're not shipping a heavy QR library; this 'QR scan' flow uses any native scanner
+   or the camera modal to grab a QR URL that encodes "GNOME:<id>" via `qrserver.com`.
+   If you want in-app QR decoding, drop in a lib (e.g. jsQR) and wire it to the scanner loop. */
 
 /* ---------- Shared UI bits ---------- */
 window.Components.ActiveBadge=({active})=>(
@@ -235,6 +298,8 @@ function Participant({user}){
   const [mapOn,setMapOn]=useState(false);
   const [gender,setGender]=useState("male");
   const [celebrate,setCelebrate]=useState(null); // {gnomeId,name,image}
+  const [qrClue, setQrClue] = useState(null); // { gnomeId, name, thumbUrl, clueHtml }
+  const [scanMode, setScanMode] = useState('image'); // 'image' | 'qr'
 
   const videoRef=useRef(null), canvasRef=useRef(null), loopRef=useRef(null), streamRef=useRef(null);
   const mapRef=useRef(null), meMarkerRef=useRef(null);
@@ -311,6 +376,7 @@ function Participant({user}){
     const g = window.GV.GNOMES.find(x=>x.id===gnomeId);
     const unlockedCount=grantOnScan(gnomeId);
     setCelebrate({gnomeId,name:g?.name,image:g?.image});
+    try { window.GV.celebrateRain(); } catch(e){}
     setMessage(`Matched trigger for #${gnomeId}. ${unlockedCount>0?`Unlocked ${unlockedCount} coupon(s).`:''}`);
   }
 
@@ -332,6 +398,12 @@ function Participant({user}){
     const video=videoRef.current, canvas=canvasRef.current; if(!video||!canvas) return;
     video.srcObject=streamRef.current; video.setAttribute('playsinline',true); video.play();
     const ctx=canvas.getContext('2d');
+
+    // If QR mode, we don't do image matching - just show the QR input
+    if(scanMode==='qr'){
+      // QR scanning will be handled by the manual input in the UI
+      return;
+    }
 
     const targetList = Object.entries(window.__triggerImages||{}).map(([gid,obj])=>({gnomeId:Number(gid),hash:obj.aHash})).filter(t=>!!t.hash);
     const THRESHOLD = 10; // hamming distance threshold (lower = stricter)
@@ -371,6 +443,32 @@ function Participant({user}){
       loopRef.current=requestAnimationFrame(tick);
     };
     loopRef.current=requestAnimationFrame(tick);
+  }
+
+  function showQrClueFromData(data){
+    // Expect "GNOME:<id>"
+    const m = String(data||'').trim().match(/^GNOME:(\d{1,2})$/i);
+    if(!m){ alert('Unrecognized QR data. Expected GNOME:<id>.'); return; }
+    const id = Number(m[1]);
+    const g  = window.GV.GNOMES.find(x=>x.id===id);
+    const assign = window.__gnomeAssignments[id];
+    const partner = assign ? (window.__partners||[]).find(p=>p.id===assign.partnerId) : null;
+    const trig = window.__triggerImages[id];
+
+    // Build dynamic "extra clue" based on the uploaded trigger image
+    const thumb = trig?.dataUrl || '';
+    const riddle = partner ? (`Seek the emblem where ${partner.establishment} leaves its mark — the right logo wakes the gnome.`)
+                          : `Seek the host's emblem; the right logo wakes the gnome.`;
+    const hint   = activePartnerHintFor(id)?.text || '';
+    const clueHtml = `
+      <div style="font-size:12px">
+        <div><em>${riddle}</em></div>
+        ${hint ? `<div style="margin-top:4px">Hint: ${hint}</div>` : ''}
+        ${thumb ? `<div style="margin-top:6px"><img src="${thumb}" style="width:100%;max-height:120px;object-fit:cover;border-radius:8px;border:1px solid #eee" /></div>` : ''}
+        <div style="margin-top:6px;color:#555">Tip: Use "Image Unlock" mode at the location to scan this emblem/logo.</div>
+      </div>`;
+
+    setQrClue({ gnomeId:id, name:g?.name, thumbUrl:thumb, clueHtml });
   }
 
   function redeem(code){
@@ -475,8 +573,9 @@ function Participant({user}){
       <div className="rounded-2xl border p-3 bg-white">
         <h3 className="font-semibold text-sm mb-2">Scan Hidden Emblem</h3>
         <div className="flex gap-2">
-          <button className="rounded bg-black text-white px-3 py-1.5 text-sm" onClick={openScanner}>Open Camera</button>
-          <button className="rounded border px-3 py-1.5 text-sm" onClick={()=>alert('Point your camera at the correct logo/image at the location. When it matches, your gnome unlocks automatically!')}>Help</button>
+          <button className="rounded bg-black text-white px-3 py-1.5 text-sm" onClick={()=>{setScanMode('image'); openScanner();}}>Image Unlock</button>
+          <button className="rounded bg-emerald-600 text-white px-3 py-1.5 text-sm" onClick={()=>{setScanMode('qr'); openScanner();}}>Scan QR for Clue</button>
+          <button className="rounded border px-3 py-1.5 text-sm" onClick={()=>alert('Image Unlock: Point your camera at the correct logo/image at the location. When it matches, your gnome unlocks automatically!\n\nScan QR for Clue: Scan a QR code from a poster to see dynamic clues about which emblem to look for.')}>Help</button>
         </div>
         {message && <p className="mt-2 text-xs text-gray-700">{message}</p>}
       </div>
@@ -489,7 +588,19 @@ function Participant({user}){
             <canvas ref={canvasRef} style={{display:'none'}}></canvas>
             <div className="scan-overlay"></div>
             <div className="absolute top-2 right-2"><button className="rounded bg-white/90 px-2 py-1 text-sm" onClick={closeScanner}>Close</button></div>
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-white text-xs bg-black/40 rounded px-2 py-1">Scan the correct emblem/logo to unlock.</div>
+            {scanMode==='image' ? (
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-white text-xs bg-black/40 rounded px-2 py-1">Scan the correct emblem/logo to unlock.</div>
+            ) : (
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-[90%] bg-white/95 rounded-lg p-3">
+                <div className="text-xs font-semibold mb-1">QR Clue Scanner</div>
+                <input type="text" placeholder="Paste GNOME:# code here" id="qrInput" className="w-full border rounded px-2 py-1 text-xs mb-2"/>
+                <button className="w-full rounded bg-emerald-600 text-white px-3 py-1.5 text-xs" onClick={()=>{
+                  const val=document.getElementById('qrInput').value;
+                  showQrClueFromData(val);
+                  closeScanner();
+                }}>Show Clue</button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -535,6 +646,17 @@ function Participant({user}){
           ))}
         </div>
       </div>
+
+      {/* QR Clue Card */}
+      {qrClue && (
+        <div className="rounded-2xl border p-3 bg-gradient-to-br from-emerald-50 to-white">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold text-sm">QR Clue: {qrClue.name || `Gnome #${qrClue.gnomeId}`}</h3>
+            <button className="text-xs text-gray-500 hover:text-black" onClick={()=>setQrClue(null)}>✕ Close</button>
+          </div>
+          <div dangerouslySetInnerHTML={{__html: qrClue.clueHtml}}></div>
+        </div>
+      )}
 
       {/* Map */}
       <div className="rounded-2xl border p-3 bg-white">
@@ -1096,6 +1218,38 @@ function Admin({user}) {
         </div>
       </div>
 
+      {/* QR Codes Section */}
+      <div className="rounded-2xl border p-3 bg-white">
+        <h3 className="font-semibold text-sm mb-2">QR Codes for Posters</h3>
+        <p className="text-xs text-gray-600 mb-3">
+          Print these QR codes on posters. When participants scan them, they'll see dynamic clues that update automatically when you approve new trigger images from partners.
+        </p>
+        <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          {window.GV.GNOMES.map(g=>{
+            const qrData = window.GV.qrDataFor(g.id);
+            const pngUrl = window.GV.qrPngUrl(qrData, 200);
+            const svgUrl = window.GV.qrSvgUrl(qrData, 200);
+            return (
+              <div key={g.id} className="rounded-xl border p-3 text-center">
+                <div className="text-xs font-semibold mb-2 flex items-center gap-2 justify-center">
+                  <img src={g.image} className="w-5 h-5 object-contain" alt=""/>{`#${g.id} ${g.name}`}
+                </div>
+                <img src={pngUrl} alt={`QR ${g.id}`} className="w-full h-auto rounded border mb-2"/>
+                <div className="flex flex-col gap-1">
+                  <a href={pngUrl} download={`gnome-${g.id}-qr.png`} className="text-xs text-blue-600 hover:underline">Download PNG</a>
+                  <button 
+                    className="text-xs bg-black text-white rounded px-2 py-1 hover:bg-gray-800"
+                    onClick={()=>window.GV.downloadSvg(svgUrl, `gnome-${g.id}-qr.svg`)}
+                  >
+                    Download SVG
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="rounded-2xl border p-3 bg-white">
         <h3 className="font-semibold text-sm mb-2">Create Admin Coupons (no card required)</h3>
         <div className="grid md:grid-cols-4 gap-2 text-xs">
@@ -1210,6 +1364,7 @@ export default function App(){
 
   return (
     <div className="min-h-screen">
+      <GlobalFX />
       <header className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <h1 className="text-2xl md:text-3xl font-black flex items-center gap-2">
