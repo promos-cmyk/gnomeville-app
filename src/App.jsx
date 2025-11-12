@@ -76,9 +76,8 @@ if(!window.__cycleDuration) window.__cycleDuration = 30 * 24 * 60 * 60 * 1000; /
 /* NEW: Shared map - track active participants */
 if(!window.__activeParticipants) window.__activeParticipants = {};
 
-/* NEW: Trigger image stores */
-if(!window.__triggerImages) window.__triggerImages = {};
-if(!window.__submittedTriggers) window.__submittedTriggers = [];
+/* NEW: Trigger image stores - images are auto-active, admin can block them */
+if(!window.__triggerImages) window.__triggerImages = {}; // {gnomeId: {dataUrl, aHash, partnerId, blocked, ts}}
 
 /* NEW: Celebration events for partner wins & advertiser unlocks */
 if(!window.__partnerCelebrations) window.__partnerCelebrations = [];
@@ -1664,7 +1663,7 @@ function Partners({user}){
     }, "Hint Pushed!");
   }
 
-  // submit a trigger image to Admin (goes to review queue)
+  // Upload trigger image - automatically activates (no admin approval needed)
   function submitTriggerImage(gnomeId){
     window.GV.performAction(async () => {
       const p=partnerRef.current; if(!p) return;
@@ -1677,8 +1676,17 @@ function Partners({user}){
           const dataUrl=e.target.result;
           try{
             const hash=await window.GV.aHashFromDataUrl(dataUrl);
-            window.__submittedTriggers.push({partnerId:p.id,gnomeId:Number(gnomeId),dataUrl, aHash:hash, ts:Date.now(), approved: false});
-            setMsg(`Submitted trigger for #${gnomeId} to Admin.`);
+            // Automatically assign to gnome - active immediately (admin can block if needed)
+            window.__triggerImages[Number(gnomeId)] = {
+              dataUrl, 
+              aHash: hash, 
+              partnerId: p.id, 
+              blocked: false, 
+              ts: Date.now()
+            };
+            // Generate riddle for this gnome
+            window.__gnomeRiddles[Number(gnomeId)] = window.GV.generateRiddle(Number(gnomeId), dataUrl);
+            setMsg(`Trigger image for #${gnomeId} is now ACTIVE! Participants can start scanning.`);
             // Clear this file
             setUploadFiles({...uploadFiles, [gnomeId]: null});
             resolve();
@@ -1689,7 +1697,7 @@ function Partners({user}){
         };
         reader.readAsDataURL(file);
       });
-    }, "Trigger Image Submitted!");
+    }, "Trigger Image Activated!");
   }
 
   function highestFor(id){
@@ -1708,24 +1716,50 @@ function Partners({user}){
         <window.Components.CycleCountdown />
       </div>
       
-      {/* Pending Approvals */}
+      {/* Blocked Trigger Image Warning */}
       {(() => {
         const p = partnerRef.current;
         if (!p) return null;
-        const pendingTriggers = (window.__submittedTriggers || []).filter(t => t.partnerId === p.id);
-        if (pendingTriggers.length === 0) return null;
         
-        const pendingItems = pendingTriggers.map(t => {
-          const gnome = window.GV.GNOMES.find(g => g.id === t.gnomeId);
-          const approved = window.__triggerImages[t.gnomeId]?.aHash === t.aHash;
-          return {
-            id: `trigger-${t.gnomeId}-${t.ts}`,
-            label: `Trigger image for #${t.gnomeId} ${gnome?.name || ''}`,
-            approved
-          };
-        });
+        // Check for blocked trigger images for this partner's gnomes
+        const blockedGnomes = myWins
+          .filter(w => {
+            const triggerImg = window.__triggerImages[w.gnome.id];
+            return triggerImg && triggerImg.blocked && triggerImg.partnerId === p.id;
+          })
+          .map(w => w.gnome);
         
-        return <window.Components.PendingApprovals items={pendingItems} onApprove={() => {}} />;
+        if (blockedGnomes.length === 0) return null;
+        
+        return (
+          <div className="rounded-2xl border-2 border-red-500 bg-red-50 p-4">
+            <div className="flex items-start gap-3">
+              <span className="text-3xl">⚠️</span>
+              <div className="flex-1">
+                <h3 className="font-bold text-red-900 mb-2">URGENT: Trigger Image Blocked by Admin</h3>
+                <p className="text-red-800 mb-3">
+                  The following gnome trigger images have been deactivated by the administrator. 
+                  Participants cannot scan these gnomes until you upload new trigger images!
+                </p>
+                <div className="space-y-2">
+                  {blockedGnomes.map(g => (
+                    <div key={g.id} className="bg-white rounded-lg p-3 border border-red-300">
+                      <div className="flex items-center gap-2">
+                        <img src={g.image} alt={g.name} className="w-8 h-8" />
+                        <span className="font-semibold text-red-900">
+                          #{g.id} {g.name} Gnome
+                        </span>
+                      </div>
+                      <p className="text-sm text-red-700 mt-1">
+                        Please upload a new trigger image immediately using the Gnome Management section below.
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
       })()}
       
       {/* profile */}
@@ -1958,20 +1992,15 @@ function Admin({user}) {
     }, flag ? "Coupon Blocked!" : "Coupon Unblocked!");
   }
 
-  function approveSubmission(idx){
+  function blockTriggerImage(gnomeId, flag){
     window.GV.performAction(async () => {
-      const item=(window.__submittedTriggers||[])[idx]; if(!item) return;
-      window.__triggerImages[item.gnomeId]={ dataUrl:item.dataUrl, aHash:item.aHash };
-      item.approved = true; // Mark as approved
-      setMsg(`Approved trigger for #${item.gnomeId}.`);
-    }, "Trigger Approved!");
+      const triggerImg = window.__triggerImages[gnomeId];
+      if (!triggerImg) return;
+      triggerImg.blocked = flag;
+      setMsg(`${flag?'Blocked':'Unblocked'} trigger image for gnome #${gnomeId}.`);
+    }, flag ? "Trigger Image Blocked!" : "Trigger Image Unblocked!");
   }
-  function rejectSubmission(idx){
-    window.GV.performAction(async () => {
-      (window.__submittedTriggers||[]).splice(idx,1);
-      setMsg("Submission rejected.");
-    }, "Submission Rejected!");
-  }
+  
   function uploadDirectTrigger(gnomeId, file){
     window.GV.performAction(async () => {
       if(!file) return;
@@ -1993,7 +2022,6 @@ function Admin({user}) {
 
   const coupons=window.__coupons||[];
   const advertisers=window.__advertisers||[];
-  const submissions=window.__submittedTriggers||[];
 
   return (
     <div className="space-y-4">
@@ -2036,47 +2064,48 @@ function Admin({user}) {
       </div>
 
       <div className="rounded-2xl border p-3 bg-white">
-        <h3 className="font-semibold text-sm mb-2">Trigger Images (scan-to-unlock)</h3>
-
+        <h3 className="font-semibold text-sm mb-2">Trigger Image Management</h3>
+        <p className="text-xs text-gray-600 mb-3">
+          Partners upload trigger images automatically (no approval needed). Block inappropriate images here.
+        </p>
         <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           {window.GV.GNOMES.map(g=>{
-            const trig=window.__triggerImages[g.id];
+            const trig = window.__triggerImages[g.id];
+            const partner = trig ? (window.__partners||[]).find(p => p.id === trig.partnerId) : null;
             return (
               <div key={g.id} className="rounded-xl border p-3">
                 <div className="text-xs font-semibold mb-2 flex items-center gap-2">
                   <img src={g.image} className="w-5 h-5 object-contain" alt=""/>{`#${g.id} ${g.name}`}
                 </div>
-                <div className="text-[11px] text-gray-600 mb-1">{trig?'Current trigger:':'No trigger set'}</div>
-                {trig && <img src={trig.dataUrl} alt="" className="w-full h-24 object-cover rounded border"/>}
-                <label className="block mt-2 text-[11px]">Replace / Upload
+                {trig ? (
+                  <>
+                    <img src={trig.dataUrl} alt="" className="w-full h-24 object-cover rounded border mb-2"/>
+                    <div className="text-[10px] text-gray-600 mb-1">
+                      by {partner?.establishment || partner?.name || 'Unknown'}
+                    </div>
+                    <div className="text-[10px] mb-2">
+                      {trig.blocked ? (
+                        <span className="text-red-600 font-semibold">⛔ BLOCKED</span>
+                      ) : (
+                        <span className="text-green-600 font-semibold">✓ ACTIVE</span>
+                      )}
+                    </div>
+                    <button 
+                      className={`rounded px-2 py-1 text-xs w-full mb-2 ${trig.blocked ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}
+                      onClick={() => blockTriggerImage(g.id, !trig.blocked)}
+                    >
+                      {trig.blocked ? 'Unblock' : 'Block'}
+                    </button>
+                  </>
+                ) : (
+                  <div className="text-[11px] text-gray-400 py-6 text-center">No image uploaded</div>
+                )}
+                <label className="block text-[11px]">Admin Upload
                   <input type="file" accept="image/*" className="mt-1 text-xs" onChange={e=>uploadDirectTrigger(g.id, e.target.files?.[0])}/>
                 </label>
               </div>
             );
           })}
-        </div>
-
-        <div className="mt-4">
-          <h4 className="font-semibold text-sm mb-1">Pending Partner Submissions</h4>
-          <div className="grid md:grid-cols-2 gap-2 text-xs">
-            {submissions.length===0 && <div className="text-gray-500">No pending submissions.</div>}
-            {submissions.map((s,idx)=>{
-              const p=(window.__partners||[]).find(pp=>pp.id===s.partnerId);
-              return (
-                <div key={idx} className="rounded border p-2">
-                  <div className="flex items-center gap-2">
-                    <div className="font-semibold">#{s.gnomeId} by {p?.establishment||p?.name||s.partnerId}</div>
-                    <div className="ml-auto text-[11px]">{new Date(s.ts).toLocaleString()}</div>
-                  </div>
-                  <img src={s.dataUrl} alt="" className="w-full h-28 object-cover rounded border mt-1"/>
-                  <div className="mt-2 flex items-center gap-2">
-                    <button className="rounded bg-black text-white px-2 py-1" onClick={()=>approveSubmission(idx)}>Approve</button>
-                    <button className="rounded border px-2 py-1" onClick={()=>rejectSubmission(idx)}>Reject</button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </div>
       </div>
 
