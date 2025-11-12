@@ -54,7 +54,7 @@ window.GV.saveUser  = (u)=>localStorage.setItem(window.GV.USER_KEY,JSON.stringif
 /* ---------- Global demo stores ---------- */
 if(!window.__partners) window.__partners=[{id:"par-1",name:"Demo Partner",establishment:"Demo Cafe",address:"123 Beach Ave, Clearwater, FL",cardOnFile:true,blocked:false}];
 if(!window.__advertisers) window.__advertisers=[{id:"adv-1",name:"Demo Advertiser",cardOnFile:true,blocked:false,freeAdvertising:false}];
-if(!window.__gnomeAssignments) window.__gnomeAssignments=Object.fromEntries(window.GV.GNOMES.map(g=>[g.id,{partnerId:"par-1",active:false,previousPartnerId:null}]));
+if(!window.__gnomeAssignments) window.__gnomeAssignments=Object.fromEntries(window.GV.GNOMES.map(g=>[g.id,{partnerId:null,active:false,previousPartnerId:null}]));
 if(!window.__charges) window.__charges=[];
 if(!window.__scans) window.__scans=[];
 if(!window.__partnerBids) window.__partnerBids=[];
@@ -2307,8 +2307,37 @@ function Admin({user}) {
   
   function toggleAuctionMode(){
     window.GV.performAction(async () => {
+      const wasEnabled = window.__auctionEnabled;
       window.__auctionEnabled = !window.__auctionEnabled;
-      setMsg(`Auction mode ${window.__auctionEnabled ? 'ENABLED' : 'DISABLED'}. Partners ${window.__auctionEnabled ? 'must bid' : 'can select gnomes directly'}.`);
+      
+      // If switching TO selection mode, offer to clear all assignments
+      if (wasEnabled && !window.__auctionEnabled) {
+        const hasAssignments = Object.values(window.__gnomeAssignments).some(a => a.partnerId !== null);
+        if (hasAssignments) {
+          const shouldClear = confirm(
+            "You're switching to Selection Mode. Do you want to CLEAR all current gnome assignments so partners can select freely?\n\n" +
+            "Click OK to clear all assignments (recommended)\n" +
+            "Click Cancel to keep existing assignments"
+          );
+          
+          if (shouldClear) {
+            window.GV.GNOMES.forEach(g => {
+              window.__gnomeAssignments[g.id] = {
+                partnerId: null,
+                active: false,
+                previousPartnerId: window.__gnomeAssignments[g.id]?.partnerId || null
+              };
+            });
+            setMsg(`Auction mode DISABLED and all gnome assignments cleared. Partners can now select gnomes freely.`);
+          } else {
+            setMsg(`Auction mode DISABLED but existing assignments kept. Partners can only claim unassigned gnomes.`);
+          }
+        } else {
+          setMsg(`Auction mode DISABLED. Partners can now select gnomes directly (no card required).`);
+        }
+      } else {
+        setMsg(`Auction mode ${window.__auctionEnabled ? 'ENABLED' : 'DISABLED'}. Partners ${window.__auctionEnabled ? 'must bid' : 'can select gnomes directly'}.`);
+      }
     }, window.__auctionEnabled ? "Auction Mode Enabled!" : "Selection Mode Enabled!");
   }
   
@@ -2459,6 +2488,40 @@ function Admin({user}) {
             '✓ Partners must bid and win gnomes (card required)' : 
             '✓ Partners can select gnomes directly (no card required)'}
         </div>
+        
+        {/* Reset Assignments Button (useful for selection mode) */}
+        {!window.__auctionEnabled && (
+          <div className="mt-3 p-3 rounded-lg border border-orange-300 bg-orange-50">
+            <div className="flex items-center justify-between">
+              <div className="flex-1 mr-3">
+                <p className="text-xs font-semibold text-orange-900 mb-1">Reset Gnome Assignments</p>
+                <p className="text-[11px] text-orange-700">
+                  Clear all current assignments to let partners select freely. Useful when switching to selection mode.
+                </p>
+              </div>
+              <button 
+                className="rounded bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 text-xs font-semibold whitespace-nowrap"
+                onClick={() => {
+                  if (confirm('Are you sure you want to CLEAR ALL gnome assignments? This cannot be undone.')) {
+                    window.GV.performAction(async () => {
+                      window.GV.GNOMES.forEach(g => {
+                        window.__gnomeAssignments[g.id] = {
+                          partnerId: null,
+                          active: false,
+                          previousPartnerId: window.__gnomeAssignments[g.id]?.partnerId || null
+                        };
+                      });
+                      setMsg('All gnome assignments have been cleared. Partners can now select freely.');
+                    }, 'Assignments Cleared!');
+                  }
+                }}
+              >
+                🔄 Clear All Assignments
+              </button>
+            </div>
+          </div>
+        )}
+        
         {msg && <div className="mt-2 text-xs text-green-700">{msg}</div>}
       </div>
       
