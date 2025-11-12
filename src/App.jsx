@@ -1920,20 +1920,31 @@ function Partners({user}){
   }
   
   function selectGnome(gnomeId){
+    const p=partnerRef.current; 
+    if(!p) {
+      setMsg("Partner not found. Please log in.");
+      return;
+    }
+    if(!est || !addr){ 
+      setMsg("⚠️ Please fill in your establishment name and address before selecting a gnome."); 
+      return; 
+    }
+    
     window.GV.performAction(async () => {
-      const p=partnerRef.current; if(!p) return;
-      if(!est || !addr){ setMsg("Please provide establishment and address before selecting a gnome."); return; }
-      
       const assignment = window.__gnomeAssignments[gnomeId];
+      
+      console.log('selectGnome called:', { gnomeId, assignment, partnerId: p.id });
       
       // If already claimed by this partner, deselect it
       if (assignment.partnerId === p.id) {
         assignment.partnerId = null;
         assignment.active = false;
-        setMsg(`Deselected gnome #${gnomeId}. It's now available for other partners.`);
-      } else if (assignment.partnerId) {
+        setMsg(`✓ Deselected gnome #${gnomeId}. It's now available for other partners.`);
+      } else if (assignment.partnerId && assignment.partnerId !== p.id) {
         // Already claimed by someone else
-        setMsg(`Gnome #${gnomeId} is already claimed by another partner.`);
+        const otherPartner = (window.__partners||[]).find(x => x.id === assignment.partnerId);
+        setMsg(`❌ Gnome #${gnomeId} is already claimed by ${otherPartner?.establishment || otherPartner?.name || 'another partner'}.`);
+        return; // Don't proceed with the action
       } else {
         // Claim it
         assignment.partnerId = p.id;
@@ -2141,6 +2152,22 @@ function Partners({user}){
         <div className="rounded-2xl border p-3 bg-white">
           <h3 className="font-semibold text-sm mb-2">Select Your Gnomes (Direct Selection Mode)</h3>
           <p className="text-xs text-gray-600 mb-3">Click a gnome to claim it. No bidding required. First-come, first-served!</p>
+          
+          {/* Warning if profile incomplete */}
+          {(!est || !addr) && (
+            <div className="mb-4 p-3 rounded-lg border-2 border-yellow-400 bg-yellow-50">
+              <div className="flex items-start gap-2">
+                <span className="text-xl">⚠️</span>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-yellow-900 mb-1">Complete Your Profile First</p>
+                  <p className="text-xs text-yellow-800">
+                    Please fill in your <strong>Establishment Name</strong> and <strong>Address</strong> in the Partner Account section above before selecting gnomes.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          
           <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
             {window.GV.GNOMES.map(g => {
               const assignment = window.__gnomeAssignments[g.id];
@@ -2148,13 +2175,22 @@ function Partners({user}){
               const holderRec = (window.__partners||[]).find(p => p.id === holder);
               const isMine = holder === partnerRef.current?.id;
               const isAvailable = !holder;
+              const canClick = isMine || isAvailable;
               
               return (
-                <div key={g.id} className={`rounded-xl border-2 p-3 text-center cursor-pointer transition-all ${
-                  isMine ? 'border-green-500 bg-green-50' : 
-                  isAvailable ? 'border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50' : 
-                  'border-red-300 bg-red-50 opacity-60'
-                }`} onClick={() => (isMine || isAvailable) && selectGnome(g.id)}>
+                <div 
+                  key={g.id} 
+                  className={`rounded-xl border-2 p-3 text-center transition-all ${
+                    isMine ? 'border-green-500 bg-green-50 cursor-pointer' : 
+                    isAvailable ? 'border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50 cursor-pointer' : 
+                    'border-red-300 bg-red-50 opacity-60 cursor-not-allowed'
+                  }`} 
+                  onClick={() => {
+                    if (canClick) {
+                      selectGnome(g.id);
+                    }
+                  }}
+                >
                   <img src={g.image} alt={g.name} className="w-16 h-16 mx-auto mb-2" />
                   <div className="text-xs font-semibold mb-1">#{g.id} {g.name}</div>
                   {isMine && (
