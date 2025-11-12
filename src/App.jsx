@@ -1139,10 +1139,73 @@ function Participant({user}){
   const [celebrate,setCelebrate]=useState(null); // {gnomeId,name,image}
   const [qrClue, setQrClue] = useState(null); // { gnomeId, name, thumbUrl, clueHtml }
   const [scanMode, setScanMode] = useState('image'); // 'image' | 'qr'
+  const [, forceUpdate] = useState({});
+  const [assignmentsHash, setAssignmentsHash] = useState('');
+  const [hintsHash, setHintsHash] = useState('');
 
   const videoRef=useRef(null), canvasRef=useRef(null), loopRef=useRef(null), streamRef=useRef(null);
   const mapRef=useRef(null), meMarkerRef=useRef(null);
   const watchIdRef=useRef(null);
+  const gnomeMarkersRef=useRef({}); // Track gnome markers separately
+
+  // Poll for gnome assignments, hints, and trigger images every 2 seconds
+  useEffect(() => {
+    const checkForChanges = () => {
+      let changed = false;
+      
+      // Check gnome assignments (locations, active status)
+      const newAssignmentsHash = JSON.stringify(
+        Object.entries(window.__gnomeAssignments || {})
+          .map(([id, a]) => `${id}:${a.partnerId}:${a.active}`)
+          .sort()
+      );
+      
+      if (newAssignmentsHash !== assignmentsHash) {
+        setAssignmentsHash(newAssignmentsHash);
+        changed = true;
+        
+        // Refresh map markers if map is enabled
+        if (mapOn && mapRef.current) {
+          refreshGnomeMarkers();
+        }
+      }
+      
+      // Check partner hints
+      const activeHints = (window.__partnerHints || []).filter(h => {
+        return !h.expiresAt || h.expiresAt > Date.now();
+      });
+      const newHintsHash = JSON.stringify(
+        activeHints.map(h => `${h.gnomeId}:${h.text}:${h.ts}`).sort()
+      );
+      
+      if (newHintsHash !== hintsHash) {
+        setHintsHash(newHintsHash);
+        changed = true;
+        
+        // Refresh marker popups if map is enabled (hints changed)
+        if (mapOn && mapRef.current) {
+          refreshGnomeMarkers();
+        }
+      }
+      
+      if (changed) {
+        forceUpdate({});
+      }
+    };
+    
+    const interval = setInterval(checkForChanges, 2000);
+    
+    // Also check on window focus (when switching tabs)
+    const handleFocus = () => {
+      checkForChanges();
+    };
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [assignmentsHash, hintsHash, mapOn]);
 
   // Auto-enable map if coming from discovery page
   useEffect(() => {
@@ -1361,14 +1424,21 @@ function Participant({user}){
     const map=window.L.map('map').setView([27.977,-82.832],13);
     window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
     mapRef.current=map;
+    
+    // Add gnome markers using the shared function
     window.GV.GNOMES.forEach(g=>{
       const a=window.__gnomeAssignments[g.id]; if(!(a&&a.active)) return;
       const p=(window.__partners||[]).find(pp=>pp.id===a.partnerId);
-      const {lat,lng}=window.GV.addrToLatLng(p?.address||''); const icon=window.L.icon({iconUrl:g.image,iconSize:[40,40],iconAnchor:[20,20]});
+      if(!p) return;
+      
+      const {lat,lng}=window.GV.addrToLatLng(p.address||''); 
+      const icon=window.L.icon({iconUrl:g.image,iconSize:[40,40],iconAnchor:[20,20]});
       const m=window.L.marker([lat,lng],{icon}).addTo(map);
       const riddle=riddleForPartner(p); const hint=activePartnerHintFor(g.id)?.text || '';
       const url=`https://maps.apple.com/?daddr=${lat},${lng}`;
       m.bindPopup(`<div style="min-width:180px"><strong>#${g.id} ${g.name}</strong><div style="margin-top:4px;font-size:12px"><em>${riddle}</em></div>${hint?`<div style="margin-top:4px;font-size:12px">Hint: ${hint}</div>`:''}<div style="margin-top:6px"><a href="${url}" target="_blank" rel="noopener">Get Directions</a></div></div>`);
+      
+      gnomeMarkersRef.current[g.id] = m;
     });
   }
 
@@ -1402,6 +1472,35 @@ function Participant({user}){
     });
     
     setParticipantMarkers(newMarkers);
+  }
+
+  function refreshGnomeMarkers(){
+    if(!mapRef.current) return;
+    
+    // Remove all existing gnome markers
+    Object.values(gnomeMarkersRef.current).forEach(marker => {
+      if(marker) mapRef.current.removeLayer(marker);
+    });
+    gnomeMarkersRef.current = {};
+    
+    // Re-add gnome markers with updated data
+    window.GV.GNOMES.forEach(g=>{
+      const a=window.__gnomeAssignments[g.id]; 
+      if(!(a&&a.active)) return;
+      const p=(window.__partners||[]).find(pp=>pp.id===a.partnerId);
+      if(!p) return;
+      
+      const {lat,lng}=window.GV.addrToLatLng(p.address||''); 
+      const icon=window.L.icon({iconUrl:g.image,iconSize:[40,40],iconAnchor:[20,20]});
+      const m=window.L.marker([lat,lng],{icon}).addTo(mapRef.current);
+      
+      const riddle=riddleForPartner(p); 
+      const hint=activePartnerHintFor(g.id)?.text || '';
+      const url=`https://maps.apple.com/?daddr=${lat},${lng}`;
+      m.bindPopup(`<div style="min-width:180px"><strong>#${g.id} ${g.name}</strong><div style="margin-top:4px;font-size:12px"><em>${riddle}</em></div>${hint?`<div style="margin-top:4px;font-size:12px">Hint: ${hint}</div>`:''}<div style="margin-top:6px"><a href="${url}" target="_blank" rel="noopener">Get Directions</a></div></div>`);
+      
+      gnomeMarkersRef.current[g.id] = m;
+    });
   }
 
   function enableMap(){
