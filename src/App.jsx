@@ -1856,6 +1856,8 @@ function Partners({user}){
   const [celebration,setCelebration]=useState(null);
   const [uploadFiles, setUploadFiles] = useState({}); // Track files per gnome {gnomeId: file}
   const [, forceUpdate] = useState({});
+  const [auctionMode, setAuctionMode] = useState(window.__auctionEnabled);
+  const [assignmentsHash, setAssignmentsHash] = useState('');
 
   // Subscribe to action state changes (for auction mode toggle)
   useEffect(() => {
@@ -1866,6 +1868,48 @@ function Partners({user}){
       if (idx > -1) window.GV.actionHandlers.splice(idx, 1);
     };
   }, []);
+
+  // Poll for auction mode and assignment changes every 2 seconds
+  useEffect(() => {
+    const checkForChanges = () => {
+      let changed = false;
+      
+      // Check auction mode
+      if (window.__auctionEnabled !== auctionMode) {
+        setAuctionMode(window.__auctionEnabled);
+        changed = true;
+      }
+      
+      // Check gnome assignments by creating a simple hash
+      const newHash = JSON.stringify(
+        Object.entries(window.__gnomeAssignments || {})
+          .map(([id, a]) => `${id}:${a.partnerId}:${a.active}`)
+          .sort()
+      );
+      
+      if (newHash !== assignmentsHash) {
+        setAssignmentsHash(newHash);
+        changed = true;
+      }
+      
+      if (changed) {
+        forceUpdate({});
+      }
+    };
+    
+    const interval = setInterval(checkForChanges, 2000);
+    
+    // Also check on window focus (when switching tabs)
+    const handleFocus = () => {
+      checkForChanges();
+    };
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [auctionMode, assignmentsHash]);
 
   useEffect(()=>{
     if(!user) return;
