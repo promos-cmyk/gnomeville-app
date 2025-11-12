@@ -53,7 +53,7 @@ window.GV.saveUser  = (u)=>localStorage.setItem(window.GV.USER_KEY,JSON.stringif
 
 /* ---------- Global demo stores ---------- */
 if(!window.__partners) window.__partners=[{id:"par-1",name:"Demo Partner",establishment:"Demo Cafe",address:"123 Beach Ave, Clearwater, FL",cardOnFile:true,blocked:false}];
-if(!window.__advertisers) window.__advertisers=[{id:"adv-1",name:"Demo Advertiser",cardOnFile:true,blocked:false}];
+if(!window.__advertisers) window.__advertisers=[{id:"adv-1",name:"Demo Advertiser",cardOnFile:true,blocked:false,freeAdvertising:false}];
 if(!window.__gnomeAssignments) window.__gnomeAssignments=Object.fromEntries(window.GV.GNOMES.map(g=>[g.id,{partnerId:"par-1",active:false,previousPartnerId:null}]));
 if(!window.__charges) window.__charges=[];
 if(!window.__scans) window.__scans=[];
@@ -68,6 +68,9 @@ if(!window.__walletSubs) window.__walletSubs={};
 if(!window.__redemptions) window.__redemptions=[];
 if(!window.__cycleId) window.__cycleId=1;
 if(!window.__costPerUnlock) window.__costPerUnlock=1;
+
+/* NEW: Auction mode toggle - when false, partners select gnomes directly without bidding */
+if(window.__auctionEnabled === undefined) window.__auctionEnabled = true;
 
 /* NEW: Cycle timing - 30 days per cycle */
 if(!window.__cycleStartTime) window.__cycleStartTime = Date.now();
@@ -437,6 +440,37 @@ window.GV.qrDataFor = (gnomeId)=> {
 };
 window.GV.qrPngUrl  = (data, size=160)=> `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(data)}`;
 window.GV.qrSvgUrl  = (data, size=180)=> `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&format=svg&data=${encodeURIComponent(data)}`;
+
+/* ---------- Image Auto-Crop for Optimal Scanning ---------- */
+window.GV.autoCropImage = function(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      // Target size optimized for mobile scanning (square format works best)
+      const targetSize = 800;
+      
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Calculate crop to square (centered)
+      const size = Math.min(img.width, img.height);
+      const x = (img.width - size) / 2;
+      const y = (img.height - size) / 2;
+      
+      // Set canvas to target size
+      canvas.width = targetSize;
+      canvas.height = targetSize;
+      
+      // Draw cropped and resized image
+      ctx.drawImage(img, x, y, size, size, 0, 0, targetSize, targetSize);
+      
+      // Convert to data URL with quality optimization
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+};
 
 /* ---------- AI Riddle Generator ---------- */
 window.GV.generateRiddle = function(gnomeId, triggerImageUrl) {
@@ -1387,7 +1421,11 @@ function Advertiser({user}){
 
   function createCoupon(){
     window.GV.performAction(async () => {
-      if(!card){ setMsg("Please add a card on file to create paid coupons."); return; }
+      const adv=(window.__advertisers||[]).find(a=>a.id===advIdRef.current);
+      const isFree = adv?.freeAdvertising;
+      
+      if(!isFree && !card){ setMsg("Please add a card on file to create paid coupons."); return; }
+      
       const id='cp-'+Math.random().toString(36).slice(2,8);
       const s = start? new Date(start).getTime(): undefined;
       const e = end? new Date(end).getTime(): undefined;
@@ -1397,7 +1435,7 @@ function Advertiser({user}){
         startAt:s, endAt:e, scanCap: Number(scanCap)||0,
         unlocks:0, active, blocked:false
       });
-      setMsg("Coupon created.");
+      setMsg(isFree ? "Free coupon created!" : "Coupon created.");
     }, "Coupon Created!");
   }
 
@@ -1430,12 +1468,24 @@ function Advertiser({user}){
         <div className="text-xs grid md:grid-cols-3 gap-2 items-end">
           <div className="rounded border p-2">
             <div className="font-semibold">Billing</div>
-            <div className="text-[11px] text-gray-600">Per unlock: {window.GV.fmtMoney(window.__costPerUnlock)} (once per device/gnome/cycle)</div>
-            <div className="mt-1">
-              {card
-                ? <span className="inline-block text-[11px] px-2 py-0.5 rounded-full border bg-green-50 border-green-500">Card on file</span>
-                : <button className="rounded bg-black text-white px-2 py-1 text-xs" onClick={saveCardOnFile}>Add card & authorize</button>}
-            </div>
+            {advIdRef.current && (window.__advertisers||[]).find(a => a.id === advIdRef.current)?.freeAdvertising ? (
+              <>
+                <div className="text-[11px] text-green-700 font-semibold">✓ Free Advertising Enabled</div>
+                <div className="text-[11px] text-gray-600">No charges for unlocks</div>
+                <div className="mt-1">
+                  <span className="inline-block text-[11px] px-2 py-0.5 rounded-full border bg-green-50 border-green-500">Card not required</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-[11px] text-gray-600">Per unlock: {window.GV.fmtMoney(window.__costPerUnlock)} (once per device/gnome/cycle)</div>
+                <div className="mt-1">
+                  {card
+                    ? <span className="inline-block text-[11px] px-2 py-0.5 rounded-full border bg-green-50 border-green-500">Card on file</span>
+                    : <button className="rounded bg-black text-white px-2 py-1 text-xs" onClick={saveCardOnFile}>Add card & authorize</button>}
+                </div>
+              </>
+            )}
           </div>
           <div className="rounded border p-2">
             <div className="font-semibold">Ledger</div>
@@ -1633,6 +1683,30 @@ function Partners({user}){
       setMsg(`Bid placed for #${bidGnome} at ${window.GV.fmtMoney(amt)}.`);
     }, "Bid Placed!");
   }
+  
+  function selectGnome(gnomeId){
+    window.GV.performAction(async () => {
+      const p=partnerRef.current; if(!p) return;
+      if(!est || !addr){ setMsg("Please provide establishment and address before selecting a gnome."); return; }
+      
+      const assignment = window.__gnomeAssignments[gnomeId];
+      
+      // If already claimed by this partner, deselect it
+      if (assignment.partnerId === p.id) {
+        assignment.partnerId = null;
+        assignment.active = false;
+        setMsg(`Deselected gnome #${gnomeId}. It's now available for other partners.`);
+      } else if (assignment.partnerId) {
+        // Already claimed by someone else
+        setMsg(`Gnome #${gnomeId} is already claimed by another partner.`);
+      } else {
+        // Claim it
+        assignment.partnerId = p.id;
+        assignment.active = false; // Not active until trigger image uploaded and activated
+        setMsg(`You've claimed gnome #${gnomeId}! Upload a trigger image to activate it.`);
+      }
+    }, "Gnome Selection Updated!");
+  }
   function toggleActivate(gid){
     window.GV.performAction(async () => {
       const a=window.__gnomeAssignments[gid]; if(!a) return;
@@ -1675,18 +1749,20 @@ function Partners({user}){
         reader.onload=async (e)=>{
           const dataUrl=e.target.result;
           try{
-            const hash=await window.GV.aHashFromDataUrl(dataUrl);
+            // Auto-crop image to optimal scanning size
+            const croppedDataUrl = await window.GV.autoCropImage(dataUrl);
+            const hash=await window.GV.aHashFromDataUrl(croppedDataUrl);
             // Automatically assign to gnome - active immediately (admin can block if needed)
             window.__triggerImages[Number(gnomeId)] = {
-              dataUrl, 
+              dataUrl: croppedDataUrl, 
               aHash: hash, 
               partnerId: p.id, 
               blocked: false, 
               ts: Date.now()
             };
             // Generate riddle for this gnome
-            window.__gnomeRiddles[Number(gnomeId)] = window.GV.generateRiddle(Number(gnomeId), dataUrl);
-            setMsg(`Trigger image for #${gnomeId} is now ACTIVE! Participants can start scanning.`);
+            window.__gnomeRiddles[Number(gnomeId)] = window.GV.generateRiddle(Number(gnomeId), croppedDataUrl);
+            setMsg(`Trigger image for #${gnomeId} is now ACTIVE! (auto-cropped to 800x800 for optimal scanning)`);
             // Clear this file
             setUploadFiles({...uploadFiles, [gnomeId]: null});
             resolve();
@@ -1777,17 +1853,23 @@ function Partners({user}){
           </label>
           <div className="md:col-span-3 flex items-center gap-2">
             <button className="rounded border px-2 py-1 text-xs" onClick={saveProfile}>Save Profile</button>
-            {card
-              ? <span className="text-[11px] px-2 py-0.5 rounded-full border bg-green-50 border-green-500">Card on file</span>
-              : <button className="rounded bg-black text-white px-2 py-1 text-xs" onClick={saveCard}>Add card & authorize</button>}
+            {window.__auctionEnabled && (
+              card
+                ? <span className="text-[11px] px-2 py-0.5 rounded-full border bg-green-50 border-green-500">Card on file</span>
+                : <button className="rounded bg-black text-white px-2 py-1 text-xs" onClick={saveCard}>Add card & authorize</button>
+            )}
+            {!window.__auctionEnabled && (
+              <span className="text-[11px] text-gray-600">Card not required in selection mode</span>
+            )}
           </div>
         </div>
         {msg && <div className="mt-2 text-xs text-green-700">{msg}</div>}
       </div>
 
-      {/* bidding */}
-      <div className="rounded-2xl border p-3 bg-white">
-        <h3 className="font-semibold text-sm mb-2">Bid for Gnomes</h3>
+      {/* Bidding or Selection Mode */}
+      {window.__auctionEnabled ? (
+        <div className="rounded-2xl border p-3 bg-white">
+          <h3 className="font-semibold text-sm mb-2">Bid for Gnomes (Auction Mode)</h3>
         <div className="grid md:grid-cols-2 gap-2 text-xs">
           <label className="grid gap-1">Gnome
             <select className="border rounded px-2 py-1" value={bidGnome} onChange={e=>setBidGnome(e.target.value)}>
@@ -1820,6 +1902,44 @@ function Partners({user}){
           })}
         </div>
       </div>
+      ) : (
+        <div className="rounded-2xl border p-3 bg-white">
+          <h3 className="font-semibold text-sm mb-2">Select Your Gnomes (Direct Selection Mode)</h3>
+          <p className="text-xs text-gray-600 mb-3">Click a gnome to claim it. No bidding required. First-come, first-served!</p>
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            {window.GV.GNOMES.map(g => {
+              const assignment = window.__gnomeAssignments[g.id];
+              const holder = assignment?.partnerId;
+              const holderRec = (window.__partners||[]).find(p => p.id === holder);
+              const isMine = holder === partnerRef.current?.id;
+              const isAvailable = !holder;
+              
+              return (
+                <div key={g.id} className={`rounded-xl border-2 p-3 text-center cursor-pointer transition-all ${
+                  isMine ? 'border-green-500 bg-green-50' : 
+                  isAvailable ? 'border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50' : 
+                  'border-red-300 bg-red-50 opacity-60'
+                }`} onClick={() => (isMine || isAvailable) && selectGnome(g.id)}>
+                  <img src={g.image} alt={g.name} className="w-16 h-16 mx-auto mb-2" />
+                  <div className="text-xs font-semibold mb-1">#{g.id} {g.name}</div>
+                  {isMine && (
+                    <div className="text-xs font-bold text-green-700 mb-1">✓ Your Gnome</div>
+                  )}
+                  {isAvailable && !isMine && (
+                    <div className="text-xs font-semibold text-blue-600">Available</div>
+                  )}
+                  {!isAvailable && !isMine && (
+                    <>
+                      <div className="text-xs font-semibold text-red-600 mb-1">Unavailable</div>
+                      <div className="text-[10px] text-gray-600">{holderRec?.establishment || holderRec?.name || 'Claimed'}</div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* my winning gnomes + activate + hint push + submit trigger */}
       <div className="rounded-2xl border p-3 bg-white">
@@ -1912,6 +2032,20 @@ function Admin({user}) {
   function setCostPerUnlock(){
     window.__costPerUnlock = Number(cost)||0;
     setMsg("Updated advertiser cost-per-unlock.");
+  }
+  
+  function toggleAuctionMode(){
+    window.GV.performAction(async () => {
+      window.__auctionEnabled = !window.__auctionEnabled;
+      setMsg(`Auction mode ${window.__auctionEnabled ? 'ENABLED' : 'DISABLED'}. Partners ${window.__auctionEnabled ? 'must bid' : 'can select gnomes directly'}.`);
+    }, window.__auctionEnabled ? "Auction Mode Enabled!" : "Selection Mode Enabled!");
+  }
+  
+  function toggleAdvertiserFreeAds(advertiser){
+    window.GV.performAction(async () => {
+      advertiser.freeAdvertising = !advertiser.freeAdvertising;
+      setMsg(`${advertiser.name} ${advertiser.freeAdvertising ? 'can now advertise for FREE' : 'must pay per unlock'}.`);
+    }, advertiser.freeAdvertising ? "Free Advertising Enabled!" : "Paid Advertising Required!");
   }
 
   function scheduleGolden(){
@@ -2030,18 +2164,71 @@ function Admin({user}) {
           <h3 className="font-semibold text-sm">Admin Controls</h3>
           <div className="text-[11px] text-gray-600">Logged in: <span className="font-mono">{user?.email||'—'}</span></div>
         </div>
-        <div className="text-xs grid md:grid-cols-3 gap-2">
+        <div className="text-xs grid md:grid-cols-3 gap-3 mt-3">
           <label className="grid gap-1">Cost per unlock (advertiser)
             <input type="number" className="border rounded px-2 py-1" value={cost} onChange={e=>setCost(e.target.value)}/>
           </label>
-          <div className="md:col-span-2 flex items-end">
-            <button className="rounded bg-black text-white px-3 py-1.5 text-sm" onClick={setCostPerUnlock}>Update</button>
+          <div className="flex items-end">
+            <button className="rounded bg-black text-white px-3 py-1.5 text-sm" onClick={setCostPerUnlock}>Update Cost</button>
           </div>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={window.__auctionEnabled} 
+                onChange={toggleAuctionMode}
+                className="w-4 h-4"
+              />
+              <span className="text-xs font-semibold">Auction Mode {window.__auctionEnabled ? 'ON' : 'OFF'}</span>
+            </label>
+          </div>
+        </div>
+        <div className="mt-2 text-[11px] text-gray-600">
+          {window.__auctionEnabled ? 
+            '✓ Partners must bid and win gnomes (card required)' : 
+            '✓ Partners can select gnomes directly (no card required)'}
         </div>
         {msg && <div className="mt-2 text-xs text-green-700">{msg}</div>}
       </div>
+      
+      {/* Advertiser Management */}
+      <div className="rounded-2xl border p-3 bg-white">
+        <h3 className="font-semibold text-sm mb-2">Advertiser Management</h3>
+        <div className="space-y-2">
+          {advertisers.map(a => (
+            <div key={a.id} className="rounded border p-2 flex items-center justify-between">
+              <div className="flex-1">
+                <div className="text-xs font-semibold">{a.name}</div>
+                <div className="text-[11px] text-gray-600">{a.email || 'No email'}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 cursor-pointer text-xs">
+                  <input 
+                    type="checkbox" 
+                    checked={!!a.freeAdvertising} 
+                    onChange={() => toggleAdvertiserFreeAds(a)}
+                    className="w-4 h-4"
+                  />
+                  <span className={a.freeAdvertising ? 'text-green-600 font-semibold' : 'text-gray-600'}>
+                    {a.freeAdvertising ? '✓ Free Ads' : 'Paid Ads'}
+                  </span>
+                </label>
+                <button 
+                  className={`rounded px-2 py-1 text-xs ${a.blocked ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}
+                  onClick={() => blockAdvertiser(a, !a.blocked)}
+                >
+                  {a.blocked ? 'Unblock' : 'Block'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="rounded-2xl border p-3 bg-white">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-semibold text-sm">Partner Bidding & Cycle Control</h3>
+        </div>
         <h3 className="font-semibold text-sm mb-2">Golden Gnome Scheduler</h3>
         <div className="grid md:grid-cols-5 gap-2 text-xs">
           <label className="grid gap-1">Start
