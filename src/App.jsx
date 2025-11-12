@@ -185,6 +185,89 @@ window.Components.PopularityGrid=function({title,showActive}){
   );
 };
 
+/* ---------- Dismissible Info Cards (remembered via localStorage) ---------- */
+window.Components.InfoCard = function({ lsKey, icon="ℹ️", title, children, defaultOpen=true }) {
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem(lsKey) !== "dismissed"; } catch { return defaultOpen; }
+  });
+  if (!open) return null;
+  function dismiss() {
+    try { localStorage.setItem(lsKey, "dismissed"); } catch {}
+    setOpen(false);
+  }
+  return (
+    <div className="rounded-2xl border p-3 bg-white shadow-sm">
+      <div className="flex items-start gap-2">
+        <div className="text-xl leading-none">{icon}</div>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-sm">{title}</h3>
+            <button className="ml-auto rounded border px-2 py-1 text-[11px]" onClick={dismiss}>Dismiss</button>
+          </div>
+          <div className="mt-2 text-xs text-gray-700">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ---------- Role-specific "How it works" cards ---------- */
+window.Components.ParticipantIntro = function(){
+  return (
+    <window.Components.InfoCard
+      lsKey="__intro_participant_v1"
+      icon="🧍"
+      title="How Gnomeville Works (Players)"
+    >
+      <p><strong>Welcome to Gnomeville!</strong></p>
+      <ul className="list-disc ml-4 mt-2 space-y-1">
+        <li><strong>Find Clues:</strong> Scan QR posters to see fresh hints tied to the latest trigger image.</li>
+        <li><strong>Hunt the Gnome:</strong> Go to the location and use <em>Image Unlock</em> mode to scan the correct logo/photo.</li>
+        <li><strong>Unlock & Celebrate:</strong> The gnome dances with coins & nugs — your unique coupons land in your Rewards Wallet.</li>
+        <li><strong>Redeem:</strong> Add coupons to Apple Wallet. Each code is device-bound and one-time use.</li>
+        <li><strong>Team Up:</strong> Enable location sharing to see other players live on the map.</li>
+      </ul>
+    </window.Components.InfoCard>
+  );
+};
+
+window.Components.PartnersIntro = function(){
+  return (
+    <window.Components.InfoCard
+      lsKey="__intro_partners_v1"
+      icon="🏪"
+      title="How It Works (Partners)"
+    >
+      <ul className="list-disc ml-4 mt-1 space-y-1">
+        <li><strong>Profile:</strong> Add establishment name & address.</li>
+        <li><strong>Bid:</strong> Compete monthly for gnomes. Highest bid wins (charged once per cycle).</li>
+        <li><strong>Trigger Image:</strong> Upload the logo/photo players must scan. Admin approves and links it to your gnome.</li>
+        <li><strong>Activate:</strong> Toggle your gnome to "Active" when it's hidden and ready.</li>
+        <li><strong>Clues:</strong> Push manual hints anytime to help players.</li>
+        <li><strong>Insights:</strong> Check 30-day scan popularity to value your next bids.</li>
+      </ul>
+    </window.Components.InfoCard>
+  );
+};
+
+window.Components.AdvertiserIntro = function(){
+  return (
+    <window.Components.InfoCard
+      lsKey="__intro_advertisers_v1"
+      icon="💼"
+      title="How It Works (Advertisers)"
+    >
+      <ul className="list-disc ml-4 mt-1 space-y-1">
+        <li><strong>Billing:</strong> Add a card once; pay only when a device unlocks your coupon.</li>
+        <li><strong>Create:</strong> Write your offer and target a specific gnome, all gnomes, or the Golden Gnome. Set dates/limits as needed.</li>
+        <li><strong>Go Live:</strong> Coupons appear when players unlock via image scan (not QR).</li>
+        <li><strong>Engage:</strong> Send pushes to users who added your coupon to Apple Wallet.</li>
+        <li><strong>Measure:</strong> Track unlocks, spend, and view 30-day popularity per gnome.</li>
+      </ul>
+    </window.Components.InfoCard>
+  );
+};
+
 /* ---------- Signup Modal ---------- */
 window.Components.SignupModal=function({role,onDone}){
   const [name,setName]=useState(""); const [email,setEmail]=useState(""); const [phone,setPhone]=useState("");
@@ -537,6 +620,7 @@ function Participant({user}){
 
   return (
     <div className="space-y-4">
+      <window.Components.ParticipantIntro />
       {/* Progress */}
       <div className="rounded-2xl border p-3 bg-white">
         <div className="flex items-center justify-between">
@@ -751,6 +835,7 @@ function Advertiser({user}){
 
   return (
     <div className="space-y-4">
+      <window.Components.AdvertiserIntro />
       {/* account/ledger/analytics */}
       <div className="rounded-2xl border p-3 bg-white">
         <div className="flex items-center justify-between">
@@ -929,6 +1014,7 @@ function Partners({user}){
 
   return (
     <div className="space-y-4">
+      <window.Components.PartnersIntro />
       {/* profile */}
       <div className="rounded-2xl border p-3 bg-white">
         <div className="flex items-center justify-between">
