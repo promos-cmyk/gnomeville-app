@@ -673,6 +673,219 @@ window.Components.AdvertiserIntro = function(){
   );
 };
 
+/* ---------- Universal Discover Page (Location-Based Gnome Finder) ---------- */
+window.Components.DiscoverPage = function() {
+  const [location, setLocation] = useState(null);
+  const [nearestGnome, setNearestGnome] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
+
+  function requestLocation() {
+    setLoading(true);
+    setError(null);
+    
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported by your browser");
+      setLoading(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const userLat = position.coords.latitude;
+        const userLng = position.coords.longitude;
+        setLocation({ lat: userLat, lng: userLng });
+        
+        // Find nearest active gnome
+        let minDistance = Infinity;
+        let nearest = null;
+        
+        window.GV.GNOMES.forEach(g => {
+          const assignment = window.__gnomeAssignments[g.id];
+          if (!assignment?.active) return;
+          
+          const partner = window.__partners.find(p => p.id === assignment.partnerId);
+          if (!partner) return;
+          
+          const gnomeLocation = window.GV.addrToLatLng(partner.address);
+          const distance = Math.sqrt(
+            Math.pow(userLat - gnomeLocation.lat, 2) + 
+            Math.pow(userLng - gnomeLocation.lng, 2)
+          );
+          
+          if (distance < minDistance) {
+            minDistance = distance;
+            nearest = {
+              gnome: g,
+              partner,
+              distance,
+              location: gnomeLocation
+            };
+          }
+        });
+        
+        setNearestGnome(nearest);
+        setLoading(false);
+        if (nearest) {
+          setShowCelebration(true);
+          // Trigger coin/nug rain
+          setTimeout(() => window.GV.celebrateRain?.(), 300);
+        }
+      },
+      (err) => {
+        setError("Unable to retrieve your location. Please enable location services.");
+        setLoading(false);
+      }
+    );
+  }
+
+  if (!location && !loading && !error) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="rounded-2xl border-2 border-blue-400 bg-gradient-to-br from-blue-50 to-cyan-50 p-8 text-center">
+          <div className="mb-6">
+            <span className="text-6xl">📍</span>
+          </div>
+          <h1 className="text-3xl font-black text-blue-900 mb-4">Discover Your Nearest Gnome!</h1>
+          <p className="text-gray-700 mb-6">
+            Enable location services to find the hidden gnome closest to you and unlock exclusive clues and rewards!
+          </p>
+          <button 
+            onClick={requestLocation}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full text-lg transition-all active:scale-95"
+          >
+            🎯 Enable Location & Discover
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="max-w-2xl mx-auto p-6 text-center">
+        <div className="rounded-2xl border bg-white p-8">
+          <div className="animate-spin text-6xl mb-4">🧭</div>
+          <p className="text-gray-700">Finding your nearest gnome...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="rounded-2xl border-2 border-red-400 bg-red-50 p-8 text-center">
+          <span className="text-6xl mb-4 block">⚠️</span>
+          <h2 className="text-2xl font-bold text-red-900 mb-4">Location Required</h2>
+          <p className="text-red-700 mb-6">{error}</p>
+          <button 
+            onClick={requestLocation}
+            className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-full transition-all active:scale-95"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!nearestGnome) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="rounded-2xl border bg-white p-8 text-center">
+          <span className="text-6xl mb-4 block">🔍</span>
+          <h2 className="text-2xl font-bold text-gray-700 mb-4">No Active Gnomes Nearby</h2>
+          <p className="text-gray-600">Check back soon for new gnome locations!</p>
+        </div>
+      </div>
+    );
+  }
+
+  const { gnome, partner } = nearestGnome;
+  
+  // Get riddle
+  let riddle = window.__gnomeRiddles[gnome.id];
+  if (!riddle) {
+    const triggerImg = window.__triggerImages[gnome.id];
+    riddle = window.GV.generateRiddle(gnome.id, triggerImg?.dataUrl);
+    window.__gnomeRiddles[gnome.id] = riddle;
+  }
+
+  // Get partner hints
+  const partnerHints = (window.__partnerHints || [])
+    .filter(h => h.gnomeId === gnome.id)
+    .sort((a, b) => b.ts - a.ts);
+
+  return (
+    <div className="max-w-2xl mx-auto p-6">
+      <div className="rounded-2xl border-2 border-green-400 bg-gradient-to-br from-green-50 to-emerald-50 p-8 relative overflow-hidden">
+        {/* Dancing Gnome */}
+        <div className="text-center mb-6">
+          <img 
+            src={gnome.image} 
+            alt={gnome.name} 
+            className="w-40 h-40 mx-auto mb-4 float-gnome"
+          />
+          <h1 className="text-3xl font-black text-green-900 mb-2">
+            You Found #{gnome.id} {gnome.name} Gnome!
+          </h1>
+          <p className="text-sm text-green-700">
+            📍 Hidden at: <strong>{partner.establishment}</strong>
+          </p>
+          <p className="text-xs text-gray-600">{partner.address}</p>
+        </div>
+
+        {/* AI-Generated Riddle */}
+        <div className="bg-white rounded-xl p-6 mb-4 border-2 border-blue-300 shadow-sm">
+          <div className="flex items-start gap-3">
+            <span className="text-3xl">🔮</span>
+            <div className="flex-1">
+              <h3 className="font-bold text-blue-900 mb-2">Mystical Riddle</h3>
+              <p className="text-gray-800 italic leading-relaxed">"{riddle}"</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Partner Hints */}
+        {partnerHints.length > 0 && (
+          <div className="bg-white rounded-xl p-6 mb-4 border-2 border-purple-300 shadow-sm">
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-3xl">💡</span>
+              <h3 className="font-bold text-purple-900">Partner Clues</h3>
+            </div>
+            <div className="space-y-3">
+              {partnerHints.slice(0, 3).map((hint, idx) => (
+                <div key={idx} className="bg-purple-50 rounded-lg p-3 border border-purple-200">
+                  <p className="text-gray-800">{hint.text}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {new Date(hint.ts).toLocaleDateString()} at {new Date(hint.ts).toLocaleTimeString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Call to Action */}
+        <div className="bg-gradient-to-r from-yellow-400 to-orange-400 rounded-xl p-6 text-center shadow-lg">
+          <h3 className="text-2xl font-black text-white mb-3">🎮 Ready to Play?</h3>
+          <p className="text-white mb-4">
+            Scan the trigger image at this location to unlock rewards!
+          </p>
+          <a 
+            href="/?enableMap=true"
+            className="inline-block bg-white text-orange-600 font-bold py-3 px-8 rounded-full text-lg transition-all hover:bg-gray-100 active:scale-95 shadow-lg"
+          >
+            🗺️ Open Participant Map
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ---------- Dynamic Gnome Clue Landing Page ---------- */
 window.Components.GnomeClue = function({ gnomeId }) {
   const gnome = window.GV.GNOMES.find(g => g.id === gnomeId);
@@ -930,6 +1143,17 @@ function Participant({user}){
   const videoRef=useRef(null), canvasRef=useRef(null), loopRef=useRef(null), streamRef=useRef(null);
   const mapRef=useRef(null), meMarkerRef=useRef(null);
   const watchIdRef=useRef(null);
+
+  // Auto-enable map if coming from discovery page
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('enableMap') === 'true' && !mapOn) {
+      setTimeout(() => {
+        setMapOn(true);
+        setTimeout(() => enableMap(), 100);
+      }, 500);
+    }
+  }, []);
 
   useEffect(()=>{ // load unlocked from memory store
     const arr=(window.__unlockedByDevice[window.GV.DEVICE_ID]||[])
@@ -2296,11 +2520,59 @@ function Admin({user}) {
         </div>
       </div>
 
-      {/* QR Codes Section */}
+      {/* Universal Discovery QR Code */}
+      <div className="rounded-2xl border-2 border-purple-400 bg-gradient-to-br from-purple-50 to-pink-50 p-4">
+        <div className="flex items-start gap-3 mb-3">
+          <span className="text-3xl">🌍</span>
+          <div className="flex-1">
+            <h3 className="font-semibold text-sm text-purple-900 mb-1">Universal Discovery QR Code</h3>
+            <p className="text-xs text-purple-700">
+              <strong>ONE QR code for ALL locations!</strong> When scanned, it detects the nearest gnome using geolocation and shows a celebration with clues. Perfect for physical deployment at multiple partner establishments.
+            </p>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border-2 border-purple-300 p-4 inline-block">
+          {(() => {
+            const baseUrl = window.location.origin;
+            const discoverUrl = `${baseUrl}/discover`;
+            const qrPng = window.GV.qrPngUrl(discoverUrl, 300);
+            const qrSvg = window.GV.qrSvgUrl(discoverUrl, 300);
+            return (
+              <>
+                <div className="text-center mb-3">
+                  <div className="font-bold text-purple-900 mb-2">📍 Scan to Discover</div>
+                  <img src={qrPng} alt="Universal Discovery QR" className="w-64 h-64 mx-auto rounded border-2 border-purple-200"/>
+                </div>
+                <div className="flex gap-2 justify-center">
+                  <a 
+                    href={qrPng} 
+                    download="gnomeville-universal-discovery-qr.png"
+                    className="text-xs bg-purple-600 text-white rounded px-3 py-2 hover:bg-purple-700 font-semibold"
+                  >
+                    📥 Download PNG
+                  </a>
+                  <button 
+                    className="text-xs bg-black text-white rounded px-3 py-2 hover:bg-gray-800 font-semibold"
+                    onClick={() => window.GV.downloadSvg(qrSvg, 'gnomeville-universal-discovery-qr.svg')}
+                  >
+                    📥 Download SVG
+                  </button>
+                </div>
+                <div className="mt-3 text-xs text-center text-purple-700 bg-purple-100 rounded p-2">
+                  <strong>Print this QR and place at ALL partner locations.</strong><br/>
+                  It works everywhere and automatically detects the nearest gnome!
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      </div>
+
+      {/* Individual QR Codes Section */}
       <div className="rounded-2xl border p-3 bg-white">
-        <h3 className="font-semibold text-sm mb-2">QR Codes for Posters</h3>
+        <h3 className="font-semibold text-sm mb-2">Individual Gnome QR Codes</h3>
         <p className="text-xs text-gray-600 mb-3">
-          Print these QR codes on posters. When participants scan them, they'll see dynamic clues that update automatically when you approve new trigger images from partners.
+          Print these QR codes on posters for specific gnomes. When participants scan them, they'll see dynamic clues that update automatically when partners upload trigger images.
         </p>
         <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           {window.GV.GNOMES.map(g=>{
@@ -2436,9 +2708,10 @@ export default function App(){
   const [needSignup,setNeedSignup]=useState(!user?.profileComplete);
   const [, forceUpdate] = useState({});
 
-  // Check if this is a /gnome/:id URL
+  // Check if this is a /gnome/:id URL or /discover
   const gnomeMatch = window.location.pathname.match(/\/gnome\/(\d+)/);
   const gnomeId = gnomeMatch ? parseInt(gnomeMatch[1], 10) : null;
+  const isDiscoverPage = window.location.pathname === '/discover';
 
   // Subscribe to action state changes
   useEffect(() => {
@@ -2453,6 +2726,27 @@ export default function App(){
   function finishSignup(profile){
     if(profile){ setUser(profile); }
     setNeedSignup(false);
+  }
+
+  // If accessing universal discover page, show location-based finder
+  if (isDiscoverPage) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
+        <GlobalFX />
+        <header className="max-w-6xl mx-auto px-4 py-6">
+          <div className="flex items-center justify-center">
+            <h1 className="text-2xl md:text-3xl font-black flex items-center gap-2">
+              <img src="https://raw.githubusercontent.com/promos-cmyk/legendary-octo-broccoli/main/wildflower-favicon.png" alt="Wildflower" className="w-28 h-28 object-contain float-gnome"/>
+              <span>WildFlower Gnomeville</span>
+            </h1>
+          </div>
+        </header>
+        <main className="max-w-6xl mx-auto px-4 pb-12">
+          <window.Components.DiscoverPage />
+        </main>
+        <Footer />
+      </div>
+    );
   }
 
   // If accessing a gnome clue page, show just that
