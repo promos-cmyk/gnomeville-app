@@ -3020,7 +3020,8 @@ function Admin({user}) {
         </div>
         <div className="bg-white rounded-xl border-2 border-purple-300 p-4 inline-block">
           {(() => {
-            const baseUrl = window.location.origin;
+            // Use production URL for QR code (works on all subdomains)
+            const baseUrl = 'https://gnomeville-657ngiya8-gnomeville-apps-projects.vercel.app';
             const discoverUrl = `${baseUrl}/discover`;
             const qrPng = window.GV.qrPngUrl(discoverUrl, 300);
             const qrSvg = window.GV.qrSvgUrl(discoverUrl, 300);
