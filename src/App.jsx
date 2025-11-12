@@ -54,7 +54,7 @@ window.GV.saveUser  = (u)=>localStorage.setItem(window.GV.USER_KEY,JSON.stringif
 /* ---------- Global demo stores ---------- */
 if(!window.__partners) window.__partners=[{id:"par-1",name:"Demo Partner",establishment:"Demo Cafe",address:"123 Beach Ave, Clearwater, FL",cardOnFile:true,blocked:false}];
 if(!window.__advertisers) window.__advertisers=[{id:"adv-1",name:"Demo Advertiser",cardOnFile:true,blocked:false}];
-if(!window.__gnomeAssignments) window.__gnomeAssignments=Object.fromEntries(window.GV.GNOMES.map(g=>[g.id,{partnerId:"par-1",active:true,previousPartnerId:null}]));
+if(!window.__gnomeAssignments) window.__gnomeAssignments=Object.fromEntries(window.GV.GNOMES.map(g=>[g.id,{partnerId:"par-1",active:false,previousPartnerId:null}]));
 if(!window.__charges) window.__charges=[];
 if(!window.__scans) window.__scans=[];
 if(!window.__partnerBids) window.__partnerBids=[];
@@ -68,6 +68,13 @@ if(!window.__walletSubs) window.__walletSubs={};
 if(!window.__redemptions) window.__redemptions=[];
 if(!window.__cycleId) window.__cycleId=1;
 if(!window.__costPerUnlock) window.__costPerUnlock=1;
+
+/* NEW: Cycle timing - 30 days per cycle */
+if(!window.__cycleStartTime) window.__cycleStartTime = Date.now();
+if(!window.__cycleDuration) window.__cycleDuration = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+
+/* NEW: Shared map - track active participants */
+if(!window.__activeParticipants) window.__activeParticipants = {};
 
 /* NEW: Trigger image stores */
 if(!window.__triggerImages) window.__triggerImages = {};
@@ -168,6 +175,82 @@ window.GV.celebrateRain = function(){
     document.body.appendChild(el);
     setTimeout(()=>document.body.removeChild(el), 4500);
   }
+};
+
+/* ---------- Cycle timing utilities ---------- */
+window.GV.getCycleTimeRemaining = function() {
+  const elapsed = Date.now() - window.__cycleStartTime;
+  const remaining = window.__cycleDuration - elapsed;
+  return Math.max(0, remaining);
+};
+
+window.GV.formatTimeRemaining = function(ms) {
+  const days = Math.floor(ms / (24 * 60 * 60 * 1000));
+  const hours = Math.floor((ms % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+  const minutes = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000));
+  return `${days}d ${hours}h ${minutes}m`;
+};
+
+window.GV.checkAndAutoCloseCycle = function() {
+  if (window.GV.getCycleTimeRemaining() === 0) {
+    // Auto-close bids and assign winners
+    window.GV.autoCloseBids();
+  }
+};
+
+window.GV.autoCloseBids = function() {
+  const newCelebrations = [];
+  window.GV.GNOMES.forEach(g=>{
+    let max=0, winner=null;
+    for(const r of (window.__partnerBids||[])){ if(r.id===g.id && r.amt>max){ max=r.amt; winner=r.partnerId; } }
+    const assign=window.__gnomeAssignments[g.id] || {partnerId:null,active:false,previousPartnerId:null};
+    assign.previousPartnerId = assign.partnerId || null;
+    assign.partnerId = winner || assign.partnerId;
+    assign.active = false;
+    window.__gnomeAssignments[g.id]=assign;
+    if(winner && max>0){
+      const p=(window.__partners||[]).find(x=>x.id===winner);
+      if(p?.cardOnFile){
+        window.__charges.push({type:'partner',partnerId:winner,amount:max,ts:Date.now(),note:`Winning bid for #${g.id}`});
+      }
+      newCelebrations.push({
+        partnerId: winner,
+        gnomeId: g.id,
+        gnomeName: g.name,
+        gnomeImage: g.image,
+        cycleId: window.__cycleId,
+        ts: Date.now()
+      });
+    }
+  });
+  window.__partnerCelebrations.push(...newCelebrations);
+  window.__partnerBids = [];
+  window.__deviceCouponGrants = {};
+  window.__cycleId = (window.__cycleId||1)+1;
+  window.__cycleStartTime = Date.now(); // Reset cycle timer
+};
+
+// Check for auto-close every minute
+setInterval(() => window.GV.checkAndAutoCloseCycle(), 60000);
+
+/* ---------- Shared map utilities ---------- */
+window.GV.updateParticipantLocation = function(deviceId, lat, lng, gender) {
+  window.__activeParticipants[deviceId] = {
+    lat, lng, gender,
+    lastUpdate: Date.now()
+  };
+};
+
+window.GV.getActiveParticipants = function() {
+  const now = Date.now();
+  const fiveMinutesAgo = now - 5 * 60 * 1000;
+  // Remove stale participants (inactive for 5+ minutes)
+  Object.keys(window.__activeParticipants).forEach(id => {
+    if (window.__activeParticipants[id].lastUpdate < fiveMinutesAgo) {
+      delete window.__activeParticipants[id];
+    }
+  });
+  return window.__activeParticipants;
 };
 
 /* ---------- Global action handler with loading + success feedback ---------- */
@@ -294,6 +377,29 @@ window.Components.PendingApprovals = function({ items, onApprove }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+};
+
+/* ---------- Cycle Countdown Component ---------- */
+window.Components.CycleCountdown = function() {
+  const [timeRemaining, setTimeRemaining] = useState(window.GV.getCycleTimeRemaining());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const remaining = window.GV.getCycleTimeRemaining();
+      setTimeRemaining(remaining);
+      if (remaining === 0) {
+        window.GV.checkAndAutoCloseCycle();
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-200">
+      <span className="text-xs font-semibold text-blue-900">⏱️ Cycle ends in:</span>
+      <span className="text-xs font-mono text-blue-700">{window.GV.formatTimeRemaining(timeRemaining)}</span>
     </div>
   );
 };
@@ -778,6 +884,8 @@ function Participant({user}){
 
   // Map & presence
   function colorForGender(g){ return g==='male'?'#2563eb':g==='female'?'#ec4899':'#eab308'; }
+  const [participantMarkers, setParticipantMarkers] = useState({});
+
   function initMap(){
     if(mapRef.current) return;
     const map=window.L.map('map').setView([27.977,-82.832],13);
@@ -793,6 +901,39 @@ function Participant({user}){
       m.bindPopup(`<div style="min-width:180px"><strong>#${g.id} ${g.name}</strong><div style="margin-top:4px;font-size:12px"><em>${riddle}</em></div>${hint?`<div style="margin-top:4px;font-size:12px">Hint: ${hint}</div>`:''}<div style="margin-top:6px"><a href="${url}" target="_blank" rel="noopener">Get Directions</a></div></div>`);
     });
   }
+
+  // Sync other participants on map
+  function syncParticipantsOnMap(){
+    if(!mapRef.current) return;
+    const activeParticipants = window.GV.getActiveParticipants();
+    const newMarkers = {};
+    
+    Object.entries(activeParticipants).forEach(([deviceId, data]) => {
+      if(deviceId === window.GV.DEVICE_ID) return; // Skip self
+      const color = data.gender === "male" ? "#2563eb" : data.gender === "female" ? "#ec4899" : "#eab308";
+      const icon = window.L.divIcon({
+        className: '',
+        html: `<div style="width:12px;height:12px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 0 1px rgba(0,0,0,.2);opacity:0.7"></div>`
+      });
+      
+      if(participantMarkers[deviceId]){
+        participantMarkers[deviceId].setLatLng([data.lat, data.lng]);
+        newMarkers[deviceId] = participantMarkers[deviceId];
+      } else {
+        newMarkers[deviceId] = window.L.marker([data.lat, data.lng], {icon}).addTo(mapRef.current);
+      }
+    });
+    
+    // Remove markers for inactive participants
+    Object.keys(participantMarkers).forEach(deviceId => {
+      if(!newMarkers[deviceId] && participantMarkers[deviceId]){
+        mapRef.current.removeLayer(participantMarkers[deviceId]);
+      }
+    });
+    
+    setParticipantMarkers(newMarkers);
+  }
+
   function enableMap(){
     setMapOn(true); setTimeout(initMap,30);
     if(navigator.geolocation){
@@ -802,6 +943,10 @@ function Participant({user}){
         const icon=window.L.divIcon({className:'',html:`<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 0 1px rgba(0,0,0,.2)"></div>`});
         if(meMarkerRef.current) meMarkerRef.current.setLatLng([latitude,longitude]);
         else meMarkerRef.current=window.L.marker([latitude,longitude],{icon}).addTo(mapRef.current);
+        
+        // Update shared location
+        window.GV.updateParticipantLocation(window.GV.DEVICE_ID, latitude, longitude, gender);
+        
         // Only center map on first location update, then let user pan freely
         if(firstUpdate){
           mapRef.current.setView([latitude,longitude],14);
@@ -809,6 +954,10 @@ function Participant({user}){
         }
       },()=>{}, {enableHighAccuracy:true,maximumAge:10000,timeout:10000});
     }
+    
+    // Sync other participants every 5 seconds
+    const syncInterval = setInterval(syncParticipantsOnMap, 5000);
+    return () => clearInterval(syncInterval);
   }
   function disableMap(){
     setMapOn(false);
@@ -1326,6 +1475,11 @@ function Partners({user}){
     <div className="space-y-4">
       <window.Components.PartnersIntro />
       
+      {/* Cycle Countdown */}
+      <div className="flex justify-center">
+        <window.Components.CycleCountdown />
+      </div>
+      
       {/* Pending Approvals */}
       {(() => {
         const p = partnerRef.current;
@@ -1537,6 +1691,7 @@ function Admin({user}) {
       window.__partnerBids = [];
       window.__deviceCouponGrants = {};
       window.__cycleId = (window.__cycleId||1)+1;
+      window.__cycleStartTime = Date.now(); // Reset cycle timer
       setMsg(`Bids closed, ${newCelebrations.length} winner(s) assigned, cycle advanced.`);
     }, "Bids Closed & Winners Assigned!");
   }
