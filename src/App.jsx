@@ -84,6 +84,12 @@ if(!window.__submittedTriggers) window.__submittedTriggers = [];
 if(!window.__partnerCelebrations) window.__partnerCelebrations = [];
 if(!window.__advertiserUnlockEvents) window.__advertiserUnlockEvents = [];
 
+/* NEW: Cycle pending state - set to true when admin closes bids, false when activated */
+if(window.__cyclePending === undefined) window.__cyclePending = false;
+
+/* NEW: AI-generated riddles for each gnome based on trigger images */
+if(!window.__gnomeRiddles) window.__gnomeRiddles = {};
+
 /* ---------- Global CSS & Celebration FX ---------- */
 const GlobalFX = () => (
   <style>{`
@@ -425,9 +431,78 @@ window.GV.popularity30d=()=>{
 };
 
 /* ---------- QR helpers ---------- */
-window.GV.qrDataFor = (gnomeId)=> `GNOME:${gnomeId}`;
+// Updated to use dynamic URLs instead of GNOME:X format
+window.GV.qrDataFor = (gnomeId)=> {
+  const baseUrl = window.location.origin;
+  return `${baseUrl}/gnome/${gnomeId}`;
+};
 window.GV.qrPngUrl  = (data, size=160)=> `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(data)}`;
 window.GV.qrSvgUrl  = (data, size=180)=> `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&format=svg&data=${encodeURIComponent(data)}`;
+
+/* ---------- AI Riddle Generator ---------- */
+window.GV.generateRiddle = function(gnomeId, triggerImageUrl) {
+  // Simple pattern-based riddle generation based on gnome type and image context
+  const gnome = window.GV.GNOMES.find(g => g.id === gnomeId);
+  if (!gnome) return "Seek the hidden treasure where adventure awaits...";
+  
+  const riddles = {
+    Surfer: [
+      "Where waves crash and boards glide, seek the one who rides the tide.",
+      "Find me where the ocean roars, and surfboards line the sandy shores.",
+      "I hang ten where the surf meets land, with salty air and golden sand."
+    ],
+    Bartender: [
+      "Where drinks are poured and stories told, a secret waits for the bold.",
+      "Behind the bar where glasses clink, find the clue before you blink.",
+      "I mix and shake from dusk till dawn, seek me where good times are drawn."
+    ],
+    Fisherman: [
+      "Where lines are cast and fish do bite, I guard a secret out of sight.",
+      "By the dock where boats do rest, find the clue that leads your quest.",
+      "With rod and reel I wait for thee, near the waters of the sea."
+    ],
+    Ninja: [
+      "In shadows deep where stealth prevails, seek the warrior of ancient tales.",
+      "Silent as night, swift as wind, find where the ninja's path begins.",
+      "Where honor meets the blade so keen, a hidden clue waits unseen."
+    ],
+    Musician: [
+      "Where melodies fill the air, and rhythms dance without a care.",
+      "Find me where the music plays, and joy resounds through all the days.",
+      "I strum and sing for all to hear, the treasure hunt will lead you here."
+    ],
+    Lifeguard: [
+      "I watch the shores from my high seat, where sun and safety always meet.",
+      "By the waves where swimmers play, find the clue that lights your way.",
+      "With whistle sharp and watchful eye, beneath the clear and cloudless sky."
+    ],
+    Party: [
+      "Where celebration never ends, and laughter echoes among friends.",
+      "Find me where the good times roll, and festive spirits fill the soul.",
+      "I dance and cheer both night and day, the clue awaits where people play."
+    ],
+    Yoga: [
+      "Where peace and balance find their place, seek tranquility and grace.",
+      "In quiet calm where spirits soar, find the clue through mindful lore.",
+      "I stretch and breathe in zen delight, the path ahead is clear and bright."
+    ],
+    Firefighter: [
+      "Where heroes stand against the blaze, I guard the clue through smoky haze.",
+      "With courage strong and heart so true, find where the brave protect the crew.",
+      "I fight the flames both night and day, seek me where the engines stay."
+    ],
+    "Tattoo Artist": [
+      "Where ink and art become as one, find the clue when day is done.",
+      "I draw your dreams upon your skin, the treasure hunt waits deep within.",
+      "With needle sharp and steady hand, seek the art across the land."
+    ]
+  };
+  
+  const gnomeRiddles = riddles[gnome.name] || ["Seek and you shall find..."];
+  const riddle = gnomeRiddles[Math.floor(Math.random() * gnomeRiddles.length)];
+  
+  return riddle;
+};
 
 window.GV.downloadSvg = async (svgUrl, filename) => {
   try {
@@ -562,6 +637,144 @@ window.Components.AdvertiserIntro = function(){
         <li><strong>Measure:</strong> Track unlocks, spend, and view 30-day popularity per gnome.</li>
       </ul>
     </window.Components.InfoCard>
+  );
+};
+
+/* ---------- Dynamic Gnome Clue Landing Page ---------- */
+window.Components.GnomeClue = function({ gnomeId }) {
+  const gnome = window.GV.GNOMES.find(g => g.id === gnomeId);
+  
+  if (!gnome) {
+    return (
+      <div className="max-w-2xl mx-auto p-6 text-center">
+        <p className="text-lg text-gray-600">Gnome not found.</p>
+      </div>
+    );
+  }
+
+  // Check if cycle is pending (admin closed bids but not yet activated)
+  if (window.__cyclePending) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="rounded-2xl border-2 border-purple-400 bg-gradient-to-br from-purple-50 to-pink-50 p-8 text-center">
+          <h2 className="text-2xl font-black mb-6 text-purple-900">🎉 Game Cycle Complete! 🎉</h2>
+          
+          {/* All 10 gnomes dancing */}
+          <div className="grid grid-cols-5 gap-4 mb-6">
+            {window.GV.GNOMES.map(g => (
+              <div key={g.id} className="flex flex-col items-center">
+                <img 
+                  src={g.image} 
+                  alt={g.name} 
+                  className="w-16 h-16 float-gnome"
+                />
+                <span className="text-xs mt-1">{g.name}</span>
+              </div>
+            ))}
+          </div>
+          
+          <div className="bg-white rounded-xl p-6 border-2 border-purple-300">
+            <p className="text-xl font-bold text-purple-900 mb-3">⏳ Pending New Game Setup</p>
+            <p className="text-gray-700 mb-2">
+              Our partners are preparing exciting new locations and clues for the next cycle!
+            </p>
+            <p className="text-sm text-gray-600">
+              Check back soon to continue your treasure hunt adventure.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Get gnome assignment and check if active
+  const assignment = window.__gnomeAssignments[gnomeId];
+  const partner = window.__partners.find(p => p.id === assignment?.partnerId);
+  
+  if (!assignment?.active || !partner) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="rounded-2xl border bg-white p-8 text-center">
+          <img src={gnome.image} alt={gnome.name} className="w-32 h-32 mx-auto mb-4 float-gnome-sm opacity-50" />
+          <h2 className="text-xl font-bold text-gray-400 mb-2">#{gnomeId} {gnome.name} Gnome</h2>
+          <p className="text-gray-500">This gnome is not currently active in the game.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Get or generate riddle
+  let riddle = window.__gnomeRiddles[gnomeId];
+  if (!riddle) {
+    const triggerImg = window.__triggerImages[gnomeId];
+    riddle = window.GV.generateRiddle(gnomeId, triggerImg?.dataUrl);
+    window.__gnomeRiddles[gnomeId] = riddle;
+  }
+
+  // Get partner hints
+  const partnerHints = (window.__partnerHints || [])
+    .filter(h => h.gnomeId === gnomeId)
+    .sort((a, b) => b.ts - a.ts);
+
+  return (
+    <div className="max-w-2xl mx-auto p-6">
+      <div className="rounded-2xl border-2 border-blue-400 bg-gradient-to-br from-blue-50 to-cyan-50 p-8">
+        {/* Gnome Header */}
+        <div className="text-center mb-6">
+          <img 
+            src={gnome.image} 
+            alt={gnome.name} 
+            className="w-32 h-32 mx-auto mb-4 float-gnome"
+          />
+          <h1 className="text-3xl font-black text-blue-900 mb-2">
+            #{gnomeId} {gnome.name} Gnome
+          </h1>
+          <p className="text-sm text-blue-700">
+            Hidden at: <strong>{partner.establishment}</strong>
+          </p>
+        </div>
+
+        {/* AI-Generated Riddle */}
+        <div className="bg-white rounded-xl p-6 mb-4 border-2 border-blue-300 shadow-sm">
+          <div className="flex items-start gap-3">
+            <span className="text-3xl">🔮</span>
+            <div className="flex-1">
+              <h3 className="font-bold text-blue-900 mb-2">Mystical Riddle</h3>
+              <p className="text-gray-800 italic leading-relaxed">
+                "{riddle}"
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Partner Hints (if any) */}
+        {partnerHints.length > 0 && (
+          <div className="bg-white rounded-xl p-6 border-2 border-green-300 shadow-sm">
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-3xl">💡</span>
+              <h3 className="font-bold text-green-900">Partner Clues</h3>
+            </div>
+            <div className="space-y-3">
+              {partnerHints.map((hint, idx) => (
+                <div key={idx} className="bg-green-50 rounded-lg p-3 border border-green-200">
+                  <p className="text-gray-800">{hint.text}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {new Date(hint.ts).toLocaleDateString()} at {new Date(hint.ts).toLocaleTimeString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Instructions */}
+        <div className="mt-6 bg-yellow-50 rounded-xl p-4 border border-yellow-300">
+          <p className="text-sm text-yellow-900">
+            <strong>🎯 Next Steps:</strong> Use the Gnomeville app's <strong>Image Unlock</strong> feature to scan the trigger image at this location and claim your rewards!
+          </p>
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -1424,7 +1637,22 @@ function Partners({user}){
   function toggleActivate(gid){
     window.GV.performAction(async () => {
       const a=window.__gnomeAssignments[gid]; if(!a) return;
+      const wasActive = a.active;
       a.active=!a.active;
+      
+      // If activating a gnome, check if this clears pending state
+      if (a.active && !wasActive) {
+        // Generate riddle for this gnome when activated
+        const triggerImg = window.__triggerImages[gid];
+        window.__gnomeRiddles[gid] = window.GV.generateRiddle(gid, triggerImg?.dataUrl);
+        
+        // If any gnome is active, clear pending state
+        const anyActive = Object.values(window.__gnomeAssignments).some(assign => assign.active);
+        if (anyActive) {
+          window.__cyclePending = false;
+        }
+      }
+      
       setMsg(`Gnome #${gid} is now ${a.active?'Active':'Inactive'}.`);
     }, a?.active ? "Gnome Activated!" : "Gnome Deactivated!");
   }
@@ -1661,6 +1889,9 @@ function Admin({user}) {
 
   function closeBidsAndAssignWinners(){
     window.GV.performAction(async () => {
+      // Set pending state - QR codes will show "Pending New Game Setup"
+      window.__cyclePending = true;
+      
       const newCelebrations = []; // Track celebrations for this cycle
       window.GV.GNOMES.forEach(g=>{
         let max=0, winner=null;
@@ -1668,7 +1899,7 @@ function Admin({user}) {
         const assign=window.__gnomeAssignments[g.id] || {partnerId:null,active:false,previousPartnerId:null};
         assign.previousPartnerId = assign.partnerId || null;
         assign.partnerId = winner || assign.partnerId;
-        assign.active = false;
+        assign.active = false; // Inactive until partner activates
         window.__gnomeAssignments[g.id]=assign;
         if(winner && max>0){
           const p=(window.__partners||[]).find(x=>x.id===winner);
@@ -1692,7 +1923,11 @@ function Admin({user}) {
       window.__deviceCouponGrants = {};
       window.__cycleId = (window.__cycleId||1)+1;
       window.__cycleStartTime = Date.now(); // Reset cycle timer
-      setMsg(`Bids closed, ${newCelebrations.length} winner(s) assigned, cycle advanced.`);
+      
+      // Clear riddles - will regenerate when partners activate
+      window.__gnomeRiddles = {};
+      
+      setMsg(`Bids closed, ${newCelebrations.length} winner(s) assigned, cycle advanced. Game is now PENDING - partners must activate gnomes.`);
     }, "Bids Closed & Winners Assigned!");
   }
 
@@ -1985,6 +2220,10 @@ export default function App(){
   const [needSignup,setNeedSignup]=useState(!user?.profileComplete);
   const [, forceUpdate] = useState({});
 
+  // Check if this is a /gnome/:id URL
+  const gnomeMatch = window.location.pathname.match(/\/gnome\/(\d+)/);
+  const gnomeId = gnomeMatch ? parseInt(gnomeMatch[1], 10) : null;
+
   // Subscribe to action state changes
   useEffect(() => {
     const handler = () => forceUpdate({});
@@ -1998,6 +2237,29 @@ export default function App(){
   function finishSignup(profile){
     if(profile){ setUser(profile); }
     setNeedSignup(false);
+  }
+
+  // If accessing a gnome clue page, show just that
+  if (gnomeId) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
+        <GlobalFX />
+        <header className="max-w-6xl mx-auto px-4 py-6">
+          <div className="flex items-center justify-center">
+            <h1 className="text-2xl md:text-3xl font-black flex items-center gap-2">
+              <img src="https://raw.githubusercontent.com/promos-cmyk/legendary-octo-broccoli/main/wildflower-favicon.png" alt="Wildflower" className="w-28 h-28 object-contain float-gnome"/>
+              <span>WildFlower Gnomeville</span>
+            </h1>
+          </div>
+        </header>
+        <main>
+          <window.Components.GnomeClue gnomeId={gnomeId} />
+        </main>
+        <footer className="max-w-6xl mx-auto px-4 py-8 text-center text-[11px] text-gray-500">
+          <span>© {new Date().getFullYear()} WildFlower FL • gnomeville.app</span>
+        </footer>
+      </div>
+    );
   }
 
   return (
