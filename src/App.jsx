@@ -595,12 +595,17 @@ function Participant({user}){
   function enableMap(){
     setMapOn(true); setTimeout(initMap,30);
     if(navigator.geolocation){
+      let firstUpdate = true;
       watchIdRef.current = navigator.geolocation.watchPosition(pos=>{
         const {latitude,longitude}=pos.coords; const color=colorForGender(gender);
         const icon=window.L.divIcon({className:'',html:`<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 0 1px rgba(0,0,0,.2)"></div>`});
         if(meMarkerRef.current) meMarkerRef.current.setLatLng([latitude,longitude]);
         else meMarkerRef.current=window.L.marker([latitude,longitude],{icon}).addTo(mapRef.current);
-        mapRef.current.setView([latitude,longitude],14);
+        // Only center map on first location update, then let user pan freely
+        if(firstUpdate){
+          mapRef.current.setView([latitude,longitude],14);
+          firstUpdate = false;
+        }
       },()=>{}, {enableHighAccuracy:true,maximumAge:10000,timeout:10000});
     }
   }
@@ -1064,7 +1069,7 @@ function Partners({user}){
               <div key={g.id} className="rounded border p-2 text-xs">
                 <div className="flex items-center gap-2">
                   <img src={g.image} className="w-5 h-5 object-contain" alt=""/><div className="font-semibold">#{g.id} {g.name}</div>
-                  <div className="ml-auto text-[11px]">Top bid: <span className="font-mono">{window.GV.fmtMoney(max)}</span> {who?`by ${who.slice(0,6)}`:''}</div>
+                  <div className="ml-auto text-[11px]">Top bid: <span className="font-mono">{window.GV.fmtMoney(max)}</span> {who?` by ${who.establishment||who.name||'Partner'}`:''}</div>
                 </div>
                 <div className="mt-1 text-[11px] text-gray-600">Currently located at: <span className="font-mono">{holderRec?.establishment||holderRec?.name||'—'}</span></div>
                 <div className="text-[11px] text-gray-500">Pickup address: <span className="font-mono">{holderRec?.address||'—'}</span></div>
