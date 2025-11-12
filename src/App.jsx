@@ -680,12 +680,41 @@ window.Components.DiscoverPage = function() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [showPending, setShowPending] = useState(false);
+
+  // Check if any gnomes are active on mount
+  useEffect(() => {
+    const hasActiveGnomes = window.GV.GNOMES.some(g => {
+      const assignment = window.__gnomeAssignments[g.id];
+      return assignment?.active && assignment?.partnerId;
+    });
+    
+    if (!hasActiveGnomes) {
+      setShowPending(true);
+      // Trigger celebration rain immediately
+      setTimeout(() => window.GV.celebrateRain?.(), 300);
+    }
+  }, []);
 
   function requestLocation() {
     setLoading(true);
     setError(null);
+    setShowPending(false);
     
     if (!navigator.geolocation) {
+      // Check if no active gnomes - show pending instead of error
+      const hasActiveGnomes = window.GV.GNOMES.some(g => {
+        const assignment = window.__gnomeAssignments[g.id];
+        return assignment?.active && assignment?.partnerId;
+      });
+      
+      if (!hasActiveGnomes) {
+        setShowPending(true);
+        setLoading(false);
+        setTimeout(() => window.GV.celebrateRain?.(), 300);
+        return;
+      }
+      
       setError("Geolocation is not supported by your browser");
       setLoading(false);
       return;
@@ -703,7 +732,7 @@ window.Components.DiscoverPage = function() {
         
         window.GV.GNOMES.forEach(g => {
           const assignment = window.__gnomeAssignments[g.id];
-          if (!assignment?.active) return;
+          if (!assignment?.active || !assignment?.partnerId) return;
           
           const partner = window.__partners.find(p => p.id === assignment.partnerId);
           if (!partner) return;
@@ -727,16 +756,83 @@ window.Components.DiscoverPage = function() {
         
         setNearestGnome(nearest);
         setLoading(false);
+        
         if (nearest) {
           setShowCelebration(true);
           // Trigger coin/nug rain
           setTimeout(() => window.GV.celebrateRain?.(), 300);
+        } else {
+          // No active gnomes found - show pending
+          setShowPending(true);
+          setTimeout(() => window.GV.celebrateRain?.(), 300);
         }
       },
       (err) => {
+        // Check if no active gnomes - show pending instead of error
+        const hasActiveGnomes = window.GV.GNOMES.some(g => {
+          const assignment = window.__gnomeAssignments[g.id];
+          return assignment?.active && assignment?.partnerId;
+        });
+        
+        if (!hasActiveGnomes) {
+          setShowPending(true);
+          setLoading(false);
+          setTimeout(() => window.GV.celebrateRain?.(), 300);
+          return;
+        }
+        
         setError("Unable to retrieve your location. Please enable location services.");
         setLoading(false);
       }
+    );
+  }
+
+  // Show pending state if no active gnomes
+  if (showPending) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="rounded-2xl border-2 border-yellow-400 bg-gradient-to-br from-yellow-50 to-orange-50 p-8 text-center relative overflow-hidden">
+          <div className="mb-6">
+            <h1 className="text-3xl font-black text-orange-900 mb-2">
+              🌸 WildFlower Gnomeville<br/>Scavenger Hunt!
+            </h1>
+            <div className="inline-block bg-yellow-400 text-yellow-900 font-black px-6 py-2 rounded-full text-xl border-2 border-yellow-600 shadow-lg">
+              Status: PENDING
+            </div>
+          </div>
+          
+          {/* All gnomes dancing */}
+          <div className="grid grid-cols-5 gap-3 mb-6">
+            {window.GV.GNOMES.map(g => (
+              <div key={g.id} className="flex flex-col items-center">
+                <img 
+                  src={g.image} 
+                  alt={g.name} 
+                  className="w-16 h-16 float-gnome"
+                />
+                <span className="text-xs font-semibold text-gray-700 mt-1">#{g.id}</span>
+              </div>
+            ))}
+          </div>
+          
+          <div className="bg-white rounded-xl p-4 mb-4 border-2 border-orange-300">
+            <p className="text-gray-800 text-sm mb-2">
+              🎮 <strong>The hunt hasn't started yet!</strong>
+            </p>
+            <p className="text-gray-700 text-xs">
+              Our partner restaurants are currently setting up their gnome locations. 
+              Check back soon to start your treasure hunt adventure!
+            </p>
+          </div>
+          
+          <button 
+            onClick={() => window.location.href = '/?enableMap=true'}
+            className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-6 rounded-full text-sm transition-all active:scale-95"
+          >
+            🗺️ Go to Participant Map
+          </button>
+        </div>
+      </div>
     );
   }
 
