@@ -3702,7 +3702,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                 <div className="absolute top-4 right-10 w-2 h-2 rounded-full bg-gray-700 border border-gray-600" style={{boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.8)'}}></div>
                 
                 {/* Weapon selector - LEFT side of FIRE button */}
-                <div className="absolute bottom-16 left-[20%] pointer-events-auto z-50">
+                <div className="absolute bottom-20 right-1/2 mr-24 pointer-events-auto z-50">
                   <div className="text-cyan-300 text-xs font-bold mb-1 tracking-wider text-center" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
                     WEAPON
                   </div>
@@ -3724,7 +3724,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                 </div>
                 
                 {/* Power and Shield meters - RIGHT side of FIRE button */}
-                <div className="absolute bottom-16 right-[20%] pointer-events-none z-50">
+                <div className="absolute bottom-20 left-1/2 ml-24 pointer-events-none z-50">
                   <div className="text-cyan-300 text-xs font-mono mb-2 font-bold" style={{textShadow: '0 0 8px rgba(6, 182, 212, 0.8)'}}>
                     AMMO: {shieldStrength > 0 ? '∞' : '0'}
                   </div>
