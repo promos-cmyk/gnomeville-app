@@ -1099,12 +1099,16 @@ window.Components.DiscoverPage = function() {
   // Show pending state if no active gnomes
   if (showPending) {
     return (
-      <div className="max-w-2xl mx-auto p-6">
+      <div className="max-w-2xl mx-auto p-6 relative">
+        {/* Spinning logo in top left corner */}
+        <div className="absolute top-0 left-0 z-10">
+          <img src="https://raw.githubusercontent.com/promos-cmyk/legendary-octo-broccoli/main/wildflower-favicon.png" alt="Wildflower" className="w-24 h-24 object-contain spin-logo"/>
+        </div>
+        
         <div className="rounded-2xl border-2 border-yellow-400 bg-gradient-to-br from-yellow-50 to-orange-50 p-8 text-center relative overflow-hidden">
           <div className="mb-6">
             <div className="flex flex-col items-center mb-2">
-              <img src="https://raw.githubusercontent.com/promos-cmyk/legendary-octo-broccoli/main/wildflower-favicon.png" alt="Wildflower" className="w-48 h-48 object-contain spin-logo mb-0.5"/>
-              <h1 className="text-4xl md:text-5xl font-black text-orange-900">WildFlower Gnomeville</h1>
+              <h1 className="text-4xl md:text-5xl font-black text-orange-900">WildFlower Gnomeville Jax Beach!</h1>
             </div>
             <div className="inline-block bg-yellow-400 text-yellow-900 font-black px-6 py-2 rounded-full text-xl border-2 border-yellow-600 shadow-lg">
               Status: PENDING
@@ -7172,7 +7176,7 @@ export default function App(){
           <div className="flex items-center justify-center">
             <h1 className="text-2xl md:text-3xl font-black flex items-center gap-2">
               <img src="https://raw.githubusercontent.com/promos-cmyk/legendary-octo-broccoli/main/wildflower-favicon.png" alt="Wildflower" className="w-28 h-28 object-contain float-gnome"/>
-              <span>WildFlower Gnomeville</span>
+              <span>WildFlower Gnomeville Jax Beach!</span>
             </h1>
           </div>
         </header>
@@ -7196,7 +7200,7 @@ export default function App(){
           <DiscoverPage />
         </main>
         <footer className="max-w-6xl mx-auto px-4 py-8 text-center text-[11px] text-gray-500">
-          <p>© 2024 WildFlower Gnomeville. Powered by magic & community spirit.</p>
+          <p>© 2024 WildFlower Gnomeville Jax Beach! Powered by magic & community spirit.</p>
         </footer>
       </div>
     );
@@ -7211,7 +7215,7 @@ export default function App(){
           <div className="flex items-center justify-center">
             <h1 className="text-2xl md:text-3xl font-black flex items-center gap-2">
               <img src="https://raw.githubusercontent.com/promos-cmyk/legendary-octo-broccoli/main/wildflower-favicon.png" alt="Wildflower" className="w-28 h-28 object-contain float-gnome"/>
-              <span>WildFlower Gnomeville</span>
+              <span>WildFlower Gnomeville Jax Beach!</span>
             </h1>
           </div>
         </header>
@@ -7248,7 +7252,7 @@ export default function App(){
         <div className="flex items-center justify-between flex-wrap gap-3">
           <h1 className={`text-2xl md:text-3xl font-black flex items-center gap-2 ${darkMode ? 'text-white' : ''}`}>
             <img src="https://raw.githubusercontent.com/promos-cmyk/legendary-octo-broccoli/main/wildflower-favicon.png" alt="Wildflower" className="w-28 h-28 object-contain float-gnome"/>
-            <span>WildFlower Gnomeville</span>
+            <span>WildFlower Gnomeville Jax Beach!</span>
           </h1>
           <Tabs tab={tab} setTab={setTab} role={role} user={user} participantRef={participantRef}/>
         </div>
