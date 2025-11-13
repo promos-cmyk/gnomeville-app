@@ -3233,7 +3233,9 @@ export default function App(){
         <main className="max-w-6xl mx-auto px-4 pb-12">
           <DiscoverPage />
         </main>
-        <Footer />
+        <footer className="max-w-6xl mx-auto px-4 py-8 text-center text-[11px] text-gray-500">
+          <p>© 2024 WildFlower Gnomeville. Powered by magic & community spirit.</p>
+        </footer>
       </div>
     );
   }
