@@ -3719,7 +3719,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                     <option value="net">🥅 NET</option>
                     <option value="crossbow">🏹 BOLT</option>
                     <option value="shortbow">🎯 ARROW</option>
-                    <option value="dart">🎲 DART</option>
+                    <option value="dart">📍 DART</option>
                   </select>
                 </div>
                 
@@ -3901,7 +3901,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                   {selectedWeapon === 'net' && '🥅'}
                   {selectedWeapon === 'crossbow' && '🏹'}
                   {selectedWeapon === 'shortbow' && '🎯'}
-                  {selectedWeapon === 'dart' && '🎲'}
+                  {selectedWeapon === 'dart' && '📍'}
                 </div>
               </>
             )}
