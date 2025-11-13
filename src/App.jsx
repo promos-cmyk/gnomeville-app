@@ -1273,14 +1273,26 @@ function Participant({user}){
   const [assignmentsHash, setAssignmentsHash] = useState('');
   const [hintsHash, setHintsHash] = useState('');
   
-  // --- Gnome Bonus: button + slot machine state ---
-  const [bonusReady, setBonusReady] = useState(false);      // turns green after any unlock
-  const [bonusOpen, setBonusOpen]   = useState(false);      // modal
-  const [spinUsed, setSpinUsed]     = useState(false);      // 1 free spin per unlock event
+  // --- Gnome Bonus: button + slot machine state (persistent) ---
+  const BONUS_KEY = `bonus_state_${window.GV.DEVICE_ID}`;
+
+  const [bonusReady, setBonusReady] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(BONUS_KEY));
+      return saved?.ready || false;
+    } catch { return false; }
+  });
+  const [spinUsed, setSpinUsed] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(BONUS_KEY));
+      return saved?.spinUsed || false;
+    } catch { return false; }
+  });
+  const [bonusOpen, setBonusOpen]   = useState(false);
   const [spinning, setSpinning]     = useState(false);
-  const [reels, setReels]           = useState([0,1,2,3,4]); // indexes into GV.GNOMES
-  const [winMsg, setWinMsg]         = useState("");         // "NEW GNOME UNLOCKED!"
-  const [gameUnlockGuard, setGameUnlockGuard] = useState(false); // prevent recursive re-enable after game unlock
+  const [reels, setReels]           = useState([0,1,2,3,4]);
+  const [winMsg, setWinMsg]         = useState("");
+  const [gameUnlockGuard, setGameUnlockGuard] = useState(false);
 
   const videoRef=useRef(null), canvasRef=useRef(null), loopRef=useRef(null), streamRef=useRef(null);
   const mapRef=useRef(null), meMarkerRef=useRef(null);
@@ -1445,10 +1457,17 @@ function Participant({user}){
     if (!gameUnlockGuard) {
       setBonusReady(true);
       setSpinUsed(false);
+      persistBonusState(true, false);
     }
   }
 
   // --- Gnome Bonus Slot Machine Functions ---
+  function persistBonusState(ready, used) {
+    try {
+      localStorage.setItem(BONUS_KEY, JSON.stringify({ ready, spinUsed: used }));
+    } catch(e) { console.warn('persist bonus failed', e); }
+  }
+
   function openBonus() {
     if (!bonusReady || spinUsed) return;
     setBonusOpen(true);
@@ -1458,6 +1477,7 @@ function Participant({user}){
 
   function closeBonus() {
     setBonusOpen(false);
+    persistBonusState(bonusReady, spinUsed);
   }
 
   function randomIndex() {
@@ -1526,6 +1546,7 @@ function Participant({user}){
             setSpinning(false);
             setSpinUsed(true);
             setBonusReady(false); // consume the bonus
+            persistBonusState(false, true);
           }, 300);
         }
       }, 900 + i*550);
