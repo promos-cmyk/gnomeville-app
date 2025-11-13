@@ -3724,7 +3724,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                 </div>
                 
                 {/* Power and Shield meters - RIGHT side of FIRE button */}
-                <div className="absolute bottom-20 left-1/2 ml-24 pointer-events-none z-50">
+                <div className="absolute bottom-20 left-1/2 ml-32 pointer-events-none z-50">
                   <div className="text-cyan-300 text-xs font-mono mb-2 font-bold" style={{textShadow: '0 0 8px rgba(6, 182, 212, 0.8)'}}>
                     AMMO: {shieldStrength > 0 ? '∞' : '0'}
                   </div>
