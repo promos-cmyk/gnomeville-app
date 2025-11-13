@@ -341,20 +341,44 @@ body.dark-mode {
 
 .projectile.net {
   animation: net-throw 0.9s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-  filter: drop-shadow(0 0 20px rgba(34, 211, 238, 1)) drop-shadow(0 0 40px rgba(34, 211, 238, 0.6));
+  filter: drop-shadow(0 0 15px rgba(34, 211, 238, 1)) 
+          drop-shadow(0 0 30px rgba(34, 211, 238, 0.8)) 
+          drop-shadow(0 0 45px rgba(34, 211, 238, 0.6))
+          drop-shadow(0 0 60px rgba(34, 211, 238, 0.4));
+  text-shadow: 0 0 20px rgba(34, 211, 238, 1), 
+               0 0 40px rgba(34, 211, 238, 0.8),
+               0 0 60px rgba(34, 211, 238, 0.6);
 }
 
 .projectile.arrow {
   animation: arrow-fly 0.75s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
-  filter: drop-shadow(0 0 20px rgba(234, 179, 8, 1)) drop-shadow(0 0 40px rgba(234, 179, 8, 0.6));
+  filter: drop-shadow(0 0 15px rgba(234, 179, 8, 1)) 
+          drop-shadow(0 0 30px rgba(234, 179, 8, 0.8)) 
+          drop-shadow(0 0 45px rgba(234, 179, 8, 0.6))
+          drop-shadow(0 0 60px rgba(234, 179, 8, 0.4));
+  text-shadow: 0 0 20px rgba(234, 179, 8, 1), 
+               0 0 40px rgba(234, 179, 8, 0.8),
+               0 0 60px rgba(234, 179, 8, 0.6);
 }
 
 .projectile.dart {
   animation: dart-fly 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-  filter: drop-shadow(0 0 20px rgba(168, 85, 247, 1)) drop-shadow(0 0 40px rgba(168, 85, 247, 0.6));
+  filter: drop-shadow(0 0 15px rgba(168, 85, 247, 1)) 
+          drop-shadow(0 0 30px rgba(168, 85, 247, 0.8)) 
+          drop-shadow(0 0 45px rgba(168, 85, 247, 0.6))
+          drop-shadow(0 0 60px rgba(168, 85, 247, 0.4));
+  text-shadow: 0 0 20px rgba(168, 85, 247, 1), 
+               0 0 40px rgba(168, 85, 247, 0.8),
+               0 0 60px rgba(168, 85, 247, 0.6);
 }
 
 .projectile.crossbow-bolt {
   animation: arrow-fly 0.65s cubic-bezier(0.19, 1, 0.22, 1) forwards;
-  filter: drop-shadow(0 0 20px rgba(249, 115, 22, 1)) drop-shadow(0 0 40px rgba(249, 115, 22, 0.6));
+  filter: drop-shadow(0 0 15px rgba(249, 115, 22, 1)) 
+          drop-shadow(0 0 30px rgba(249, 115, 22, 0.8)) 
+          drop-shadow(0 0 45px rgba(249, 115, 22, 0.6))
+          drop-shadow(0 0 60px rgba(249, 115, 22, 0.4));
+  text-shadow: 0 0 20px rgba(249, 115, 22, 1), 
+               0 0 40px rgba(249, 115, 22, 0.8),
+               0 0 60px rgba(249, 115, 22, 0.6);
 }

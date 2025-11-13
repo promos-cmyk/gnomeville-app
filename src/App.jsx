@@ -3639,15 +3639,15 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                 <div className="absolute top-4 left-10 w-2 h-2 rounded-full bg-gray-700 border border-gray-600" style={{boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.8)'}}></div>
                 <div className="absolute top-4 right-10 w-2 h-2 rounded-full bg-gray-700 border border-gray-600" style={{boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.8)'}}></div>
                 
-                {/* Left control panel - Weapon selector */}
-                <div className="absolute left-8 top-6 pointer-events-auto">
-                  <div className="text-cyan-300 text-xs font-bold mb-2 tracking-wider" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
+                {/* Weapon selector - Positioned above fire button */}
+                <div className="absolute bottom-48 left-1/2 -translate-x-1/2 pointer-events-auto">
+                  <div className="text-cyan-300 text-xs font-bold mb-2 tracking-wider text-center" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
                     WEAPON SYSTEM
                   </div>
                   <select 
                     value={selectedWeapon}
                     onChange={(e)=>setSelectedWeapon(e.target.value)}
-                    className="bg-gray-900/90 text-cyan-300 border border-cyan-500/50 rounded px-3 py-2 text-sm font-mono shadow-lg backdrop-blur-sm"
+                    className="bg-gray-900/90 text-cyan-300 border border-cyan-500/50 rounded px-3 py-2 text-sm font-mono shadow-lg backdrop-blur-sm w-full"
                     disabled={gnomeRunning}
                     style={{
                       textShadow: '0 0 8px rgba(6, 182, 212, 0.6)',
