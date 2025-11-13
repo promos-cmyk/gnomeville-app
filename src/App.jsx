@@ -3704,8 +3704,8 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                 <div className="absolute top-4 left-10 w-2 h-2 rounded-full bg-gray-700 border border-gray-600" style={{boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.8)'}}></div>
                 <div className="absolute top-4 right-10 w-2 h-2 rounded-full bg-gray-700 border border-gray-600" style={{boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.8)'}}></div>
                 
-                {/* Weapon selector - Directly LEFT of FIRE button, more centered and visible */}
-                <div className="absolute bottom-12 left-[calc(50%-180px)] pointer-events-auto z-50">
+                {/* Weapon selector - LEFT side of FIRE button */}
+                <div className="absolute bottom-16 left-1/2 -translate-x-[220px] pointer-events-auto z-50">
                   <div className="text-cyan-300 text-xs font-bold mb-1 tracking-wider text-center" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
                     WEAPON
                   </div>
@@ -3726,8 +3726,8 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                   </select>
                 </div>
                 
-                {/* Power and Shield meters - Directly RIGHT of FIRE button, more centered and visible */}
-                <div className="absolute bottom-12 right-[calc(50%-180px)] text-right pointer-events-none z-50">
+                {/* Power and Shield meters - RIGHT side of FIRE button */}
+                <div className="absolute bottom-16 left-1/2 translate-x-[92px] pointer-events-none z-50">
                   <div className="text-cyan-300 text-xs font-mono mb-2 font-bold" style={{textShadow: '0 0 8px rgba(6, 182, 212, 0.8)'}}>
                     AMMO: {shieldStrength > 0 ? '∞' : '0'}
                   </div>
