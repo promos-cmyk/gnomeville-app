@@ -3709,10 +3709,10 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                   <select 
                     value={selectedWeapon}
                     onChange={(e)=>setSelectedWeapon(e.target.value)}
-                    className="bg-gray-900 text-cyan-300 border-2 border-cyan-500 rounded px-4 py-2 text-sm font-mono shadow-xl backdrop-blur-sm font-bold"
+                    className="bg-gray-900 text-cyan-100 border-2 border-cyan-500 rounded px-4 py-2 text-sm font-mono shadow-xl backdrop-blur-sm font-bold"
                     disabled={gnomeRunning || shieldStrength <= 0}
                     style={{
-                      textShadow: '0 0 8px rgba(6, 182, 212, 0.8)',
+                      textShadow: '0 0 12px rgba(6, 182, 212, 1), 0 0 20px rgba(6, 182, 212, 0.8)',
                       boxShadow: '0 0 25px rgba(6, 182, 212, 0.6), inset 0 0 15px rgba(0, 0, 0, 0.9)'
                     }}
                   >
@@ -3724,7 +3724,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                 </div>
                 
                 {/* Power and Shield meters - RIGHT side of FIRE button */}
-                <div className="absolute bottom-20 left-1/2 ml-32 pointer-events-none z-50">
+                <div className="absolute bottom-20 left-1/2 ml-48 pointer-events-none z-50">
                   <div className="text-cyan-300 text-xs font-mono mb-2 font-bold" style={{textShadow: '0 0 8px rgba(6, 182, 212, 0.8)'}}>
                     AMMO: {shieldStrength > 0 ? '∞' : '0'}
                   </div>
