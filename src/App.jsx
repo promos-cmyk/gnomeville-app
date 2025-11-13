@@ -168,6 +168,40 @@ const GlobalFX = () => (
       opacity: 0;
       transform: scale(0.9);
     }
+    
+    /* --- Gnome Bonus button glow / pulse --- */
+    @keyframes pulse-glow {
+      0%   { filter: drop-shadow(0 0 0 rgba(16,185,129,.0)) brightness(1.0); transform: translateY(0); }
+      50%  { filter: drop-shadow(0 0 16px rgba(16,185,129,.75)) brightness(1.25); transform: translateY(-2px); }
+      100% { filter: drop-shadow(0 0 0 rgba(16,185,129,.0)) brightness(1.0); transform: translateY(0); }
+    }
+    .bonus-ready {
+      background: #10b981; /* emerald-500 */
+      color: white;
+      border-color: #059669;
+      animation: pulse-glow 1.8s ease-in-out infinite, gfloatdance 3.2s ease-in-out infinite;
+    }
+    .bonus-disabled {
+      background: #e5e7eb; /* gray-200 */
+      color: #6b7280;      /* gray-500 */
+      border-color: #d1d5db;
+      cursor: not-allowed;
+    }
+    .slot-reel {
+      width: 88px; height: 88px; border-radius: 12px; border: 1px solid #e5e7eb;
+      display: flex; align-items: center; justify-content: center; background: #fff;
+    }
+    .slot-reel img { width: 56px; height: 56px; object-fit: contain; }
+    .slot-frame {
+      border-radius: 16px; border: 2px solid #111; background: linear-gradient(#111,#000);
+      padding: 12px;
+    }
+    .slot-viewport {
+      background: #0a0a0a; border-radius: 12px; padding: 10px;
+    }
+    .slot-status {
+      font-size: 12px; color: #374151; margin-top: 6px; text-align: center;
+    }
   `}</style>
 );
 
@@ -1238,6 +1272,15 @@ function Participant({user}){
   const [, forceUpdate] = useState({});
   const [assignmentsHash, setAssignmentsHash] = useState('');
   const [hintsHash, setHintsHash] = useState('');
+  
+  // --- Gnome Bonus: button + slot machine state ---
+  const [bonusReady, setBonusReady] = useState(false);      // turns green after any unlock
+  const [bonusOpen, setBonusOpen]   = useState(false);      // modal
+  const [spinUsed, setSpinUsed]     = useState(false);      // 1 free spin per unlock event
+  const [spinning, setSpinning]     = useState(false);
+  const [reels, setReels]           = useState([0,1,2,3,4]); // indexes into GV.GNOMES
+  const [winMsg, setWinMsg]         = useState("");         // "NEW GNOME UNLOCKED!"
+  const [gameUnlockGuard, setGameUnlockGuard] = useState(false); // prevent recursive re-enable after game unlock
 
   const videoRef=useRef(null), canvasRef=useRef(null), loopRef=useRef(null), streamRef=useRef(null);
   const mapRef=useRef(null), meMarkerRef=useRef(null);
@@ -1397,6 +1440,97 @@ function Participant({user}){
     setCelebrate({gnomeId,name:g?.name,image:g?.image});
     try { window.GV.celebrateRain(); } catch(e){}
     setMessage(`Matched trigger for #${gnomeId}. ${unlockedCount>0?`Unlocked ${unlockedCount} coupon(s).`:''}`);
+    
+    // Enable bonus slot machine (unless it's from the game itself)
+    if (!gameUnlockGuard) {
+      setBonusReady(true);
+      setSpinUsed(false);
+    }
+  }
+
+  // --- Gnome Bonus Slot Machine Functions ---
+  function openBonus() {
+    if (!bonusReady || spinUsed) return;
+    setBonusOpen(true);
+    setWinMsg("");
+    setReels([0,1,2,3,4]); // reset visuals
+  }
+
+  function closeBonus() {
+    setBonusOpen(false);
+  }
+
+  function randomIndex() {
+    return Math.floor(Math.random() * window.GV.GNOMES.length); // 0..9
+  }
+
+  function startSpin() {
+    if (spinning || spinUsed) return;
+    setSpinning(true);
+
+    // Decide win/lose: ~1/8 win chance
+    const willWin = Math.random() < 0.125;
+    let targetIndex = randomIndex();
+
+    // Spin intervals for each reel; stop sequentially for a nice effect
+    const localReels = [ ...reels ];
+    const timers = [];
+    const stops  = [];
+
+    for (let i=0; i<5; i++) {
+      const t = setInterval(()=>{
+        localReels[i] = randomIndex();
+        setReels([ ...localReels ]);
+      }, 60 + i*10);
+      timers.push(t);
+    }
+
+    // Prepare final faces
+    let finalFaces;
+    if (willWin) {
+      finalFaces = [targetIndex,targetIndex,targetIndex,targetIndex,targetIndex];
+    } else {
+      finalFaces = Array.from({length:5}, ()=>randomIndex());
+      // ensure not all the same:
+      const allSame = finalFaces.every(x=>x===finalFaces[0]);
+      if (allSame) {
+        finalFaces[4] = (finalFaces[4] + 1) % window.GV.GNOMES.length;
+      }
+    }
+
+    // Stop each reel with a stagger
+    for (let i=0; i<5; i++) {
+      const st = setTimeout(()=>{
+        clearInterval(timers[i]);
+        localReels[i] = finalFaces[i];
+        setReels([ ...localReels ]);
+        // after all stopped, resolve result
+        if (i===4) {
+          setTimeout(()=>{
+            const centerSame = (new Set(finalFaces)).size === 1;
+            if (centerSame) {
+              const winGnome = window.GV.GNOMES[ finalFaces[0] ];
+              setWinMsg("NEW GNOME UNLOCKED!");
+              try { window.GV.celebrateRain(); } catch(e){}
+              // unlock that gnome & its coupons
+              setGameUnlockGuard(true);
+              onGnomeMatched(winGnome.id);
+              setGameUnlockGuard(false);
+              // return to Participant page after a short celebration
+              setTimeout(()=>{
+                closeBonus();
+              }, 1200);
+            } else {
+              setWinMsg("No match — better luck next time!");
+            }
+            setSpinning(false);
+            setSpinUsed(true);
+            setBonusReady(false); // consume the bonus
+          }, 300);
+        }
+      }, 900 + i*550);
+      stops.push(st);
+    }
   }
 
   async function openScanner(){
@@ -1643,9 +1777,19 @@ function Participant({user}){
       <window.Components.ParticipantIntro />
       {/* Progress */}
       <div className="rounded-2xl border p-3 bg-white">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-2">
           <h3 className="font-semibold text-sm">Your Progress</h3>
-          {user && <div className="text-[11px] text-gray-600">Signed in as <span className="font-mono">{user.email}</span></div>}
+          <div className="flex items-center gap-2">
+            <button
+              className={`px-3 py-1.5 rounded-full border text-sm ${bonusReady && !spinUsed ? 'bonus-ready' : 'bonus-disabled'}`}
+              onClick={openBonus}
+              disabled={!(bonusReady && !spinUsed)}
+              title={bonusReady && !spinUsed ? 'You have a bonus spin!' : 'Unlock a gnome to earn a bonus spin'}
+            >
+              Gnome Bonus!
+            </button>
+            {user && <div className="text-[11px] text-gray-600">Signed in as <span className="font-mono">{user.email}</span></div>}
+          </div>
         </div>
         <div className="text-xs text-gray-600">Progress {found.length}/{window.GV.GNOMES.length} ({progressPct}%)</div>
         <div className="h-2 w-full rounded bg-gray-200"><div className="h-2 rounded bg-black" style={{width:`${progressPct}%`}}/></div>
@@ -1720,6 +1864,44 @@ function Participant({user}){
             <div className="mt-1 text-xs text-gray-600">#{celebrate.gnomeId} {celebrate.name}</div>
             <div className="mt-3">
               <button className="rounded bg-black text-white px-3 py-1.5 text-sm" onClick={()=>setCelebrate(null)}>Nice!</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Gnome Bonus Slot Machine */}
+      {bonusOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="w-[92vw] max-w-2xl slot-frame">
+            <div className="flex items-start gap-2 text-white">
+              <div className="text-lg font-semibold">Gnome Bonus!</div>
+              <button className="ml-auto rounded bg-white/10 px-2 py-1 text-xs border border-white/20" onClick={closeBonus} disabled={spinning}>Close</button>
+            </div>
+
+            <div className="slot-viewport mt-3">
+              <div className="grid grid-cols-5 gap-2 justify-items-center">
+                {reels.map((idx, i)=>(
+                  <div key={i} className="slot-reel">
+                    <img src={window.GV.GNOMES[idx]?.image} alt={window.GV.GNOMES[idx]?.name||''}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-center justify-center gap-2">
+              <button
+                className={`rounded ${spinning || spinUsed ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-white text-black hover:bg-gray-100'} px-3 py-1.5 text-sm`}
+                onClick={startSpin}
+                disabled={spinning || spinUsed}
+              >
+                {spinUsed ? 'Spin Used' : (spinning ? 'Spinning…' : 'Spin')}
+              </button>
+            </div>
+
+            {winMsg && <div className="text-white text-center mt-2 font-semibold">{winMsg}</div>}
+
+            <div className="text-[11px] text-center text-gray-400 mt-2">
+              Get one free spin each time you unlock a gnome. Match all five gnomes across the middle to unlock a bonus gnome!
             </div>
           </div>
         </div>
