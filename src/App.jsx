@@ -4283,8 +4283,6 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
           </div>
         </div>
       )}
-
-      <window.Components.PopularityGrid title="Gnome Popularity — Last 30 Days" showActive={true}/>
     </div>
   );
 });

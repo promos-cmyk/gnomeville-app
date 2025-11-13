@@ -184,8 +184,16 @@ body.dark-mode {
 }
 
 #map {
-  height: 380px;
+  height: 500px;
+  max-height: 70vh;
   border-radius: 12px;
+}
+
+@media (max-width: 640px) {
+  #map {
+    height: 450px;
+    max-height: 65vh;
+  }
 }
 
 .dark #map {
