@@ -75,6 +75,138 @@ window.GV.bumpCycle = (label) => {
   return cid;
 };
 
+/* ---------- Bonus Spins Push System ---------- */
+window.GV.pushBonusSpins = (count) => {
+  const pushId = `push_${Date.now()}`;
+  const pushData = { count, pushId, ts: Date.now() };
+  
+  // Store the push notification in localStorage
+  localStorage.setItem("__bonus_push", JSON.stringify(pushData));
+  
+  // IMPORTANT: Set a cookie that works across subdomains
+  // Detect the base domain and set cookie appropriately
+  const hostname = window.location.hostname;
+  const expires = new Date(Date.now() + 60 * 60 * 1000).toUTCString();
+  
+  // Try to set cookie with domain for production (gnomeville.app)
+  if (hostname.includes('gnomeville.app')) {
+    document.cookie = `__bonus_push=${encodeURIComponent(JSON.stringify(pushData))}; domain=.gnomeville.app; path=/; expires=${expires}; SameSite=Lax`;
+  } else if (hostname.includes('vercel.app')) {
+    // For Vercel domains, extract the base domain
+    const parts = hostname.split('.');
+    if (parts.length >= 3) {
+      const baseDomain = '.' + parts.slice(-3).join('.');
+      document.cookie = `__bonus_push=${encodeURIComponent(JSON.stringify(pushData))}; domain=${baseDomain}; path=/; expires=${expires}; SameSite=Lax`;
+    }
+  }
+  // Also set without domain restriction for same-origin access
+  document.cookie = `__bonus_push=${encodeURIComponent(JSON.stringify(pushData))}; path=/; expires=${expires}; SameSite=Lax`;
+  
+  // CRITICAL: Add spins to ALL known user storage keys (broadcast to all participants)
+  // This is a workaround since we don't have a backend database
+  // In production, this should be done server-side
+  try {
+    // Get all bonus_spins_* keys from localStorage
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('bonus_spins_')) {
+        try {
+          const existing = JSON.parse(localStorage.getItem(key) || '{"remaining":0,"totalWon":0,"wonGnomes":[]}');
+          existing.remaining = (existing.remaining || 0) + count;
+          localStorage.setItem(key, JSON.stringify(existing));
+        } catch(e) {
+          console.warn('Failed to update bonus spins for key:', key, e);
+        }
+      }
+    }
+    
+    // Also add to current device/user even if not in localStorage yet
+    const currentUserEmail = window.GV.loadUser()?.email;
+    const currentStorageKey = currentUserEmail || window.GV.DEVICE_ID;
+    const BONUS_SPINS_KEY = `bonus_spins_${currentStorageKey}`;
+    
+    const existing = JSON.parse(localStorage.getItem(BONUS_SPINS_KEY) || '{"remaining":0,"totalWon":0,"wonGnomes":[]}');
+    existing.remaining = (existing.remaining || 0) + count;
+    localStorage.setItem(BONUS_SPINS_KEY, JSON.stringify(existing));
+  } catch(e) {
+    console.warn('Failed to add bonus spins', e);
+  }
+  
+  // Broadcast to all open tabs
+  try {
+    window.dispatchEvent(new StorageEvent("storage", { key: "__bonus_push", newValue: JSON.stringify(pushData) }));
+  } catch {}
+  
+  return pushId;
+};
+
+/* ---------- Bonus Spins Campaign System ---------- */
+window.GV.pushBonusSpinsCampaign = (count, durationHours) => {
+  const pushId = `campaign_${Date.now()}`;
+  const startTime = Date.now();
+  const endTime = startTime + (durationHours * 60 * 60 * 1000);
+  
+  const campaignData = { 
+    count, 
+    pushId, 
+    startTime, 
+    endTime, 
+    durationHours,
+    ts: startTime 
+  };
+  
+  // Store the campaign in localStorage
+  localStorage.setItem("__bonus_campaign", JSON.stringify(campaignData));
+  
+  // Set cross-domain cookie
+  const hostname = window.location.hostname;
+  const expires = new Date(endTime).toUTCString();
+  
+  if (hostname.includes('gnomeville.app')) {
+    document.cookie = `__bonus_campaign=${encodeURIComponent(JSON.stringify(campaignData))}; domain=.gnomeville.app; path=/; expires=${expires}; SameSite=Lax`;
+  } else if (hostname.includes('vercel.app')) {
+    const parts = hostname.split('.');
+    if (parts.length >= 3) {
+      const baseDomain = '.' + parts.slice(-3).join('.');
+      document.cookie = `__bonus_campaign=${encodeURIComponent(JSON.stringify(campaignData))}; domain=${baseDomain}; path=/; expires=${expires}; SameSite=Lax`;
+    }
+  }
+  document.cookie = `__bonus_campaign=${encodeURIComponent(JSON.stringify(campaignData))}; path=/; expires=${expires}; SameSite=Lax`;
+  
+  // Add spins to ALL participants
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('bonus_spins_')) {
+        try {
+          const existing = JSON.parse(localStorage.getItem(key) || '{"remaining":0,"totalWon":0,"wonGnomes":[],"campaignExpiry":null}');
+          existing.remaining = (existing.remaining || 0) + count;
+          existing.campaignExpiry = endTime; // Track when spins expire
+          existing.campaignId = pushId;
+          localStorage.setItem(key, JSON.stringify(existing));
+        } catch(e) {
+          console.warn('Failed to update bonus spins for key:', key, e);
+        }
+      }
+    }
+    
+    // Current device/user
+    const currentUserEmail = window.GV.loadUser()?.email;
+    const currentStorageKey = currentUserEmail || window.GV.DEVICE_ID;
+    const BONUS_SPINS_KEY = `bonus_spins_${currentStorageKey}`;
+    
+    const existing = JSON.parse(localStorage.getItem(BONUS_SPINS_KEY) || '{"remaining":0,"totalWon":0,"wonGnomes":[],"campaignExpiry":null}');
+    existing.remaining = (existing.remaining || 0) + count;
+    existing.campaignExpiry = endTime;
+    existing.campaignId = pushId;
+    localStorage.setItem(BONUS_SPINS_KEY, JSON.stringify(existing));
+  } catch(e) {
+    console.error('Campaign push error:', e);
+  }
+  
+  return pushId;
+};
+
 /* ---------- Global demo stores ---------- */
 if(!window.__partners) window.__partners=[{id:"par-1",name:"Demo Partner",establishment:"Demo Cafe",address:"123 Beach Ave, Clearwater, FL",cardOnFile:true,blocked:false}];
 if(!window.__advertisers) window.__advertisers=[{id:"adv-1",name:"Demo Advertiser",cardOnFile:true,blocked:false,freeAdvertising:false}];
@@ -93,8 +225,8 @@ if(!window.__redemptions) window.__redemptions=[];
 if(!window.__cycleId) window.__cycleId=1;
 if(!window.__costPerUnlock) window.__costPerUnlock=1;
 
-/* NEW: Auction mode toggle - when false, partners select gnomes directly without bidding */
-if(window.__auctionEnabled === undefined) window.__auctionEnabled = true;
+/* NEW: Auction mode toggle - per city. Structure: {cityName: boolean} */
+if(!window.__auctionEnabledByCity) window.__auctionEnabledByCity = {};
 
 /* NEW: Cycle timing - 30 days per cycle */
 if(!window.__cycleStartTime) window.__cycleStartTime = Date.now();
@@ -116,6 +248,61 @@ if(window.__cyclePending === undefined) window.__cyclePending = false;
 /* NEW: AI-generated riddles for each gnome based on trigger images */
 if(!window.__gnomeRiddles) window.__gnomeRiddles = {};
 
+/* NEW: User profile storage - stores all user data per email */
+if(!window.__userProfiles) window.__userProfiles = {}; // { email: { participant: {...}, partner: {...}, advertiser: {...}, admin: {...} } }
+
+/* Helper to get user-specific storage key */
+window.GV.getUserStorageKey = (email, dataType) => {
+  if (!email) return null;
+  return `user_${email}_${dataType}`;
+};
+
+/* Helper to save user profile data */
+window.GV.saveUserProfile = (email, role, data) => {
+  if (!email || !role) return;
+  
+  if (!window.__userProfiles[email]) {
+    window.__userProfiles[email] = { participant: {}, partner: {}, advertiser: {}, admin: {} };
+  }
+  
+  window.__userProfiles[email][role] = {
+    ...window.__userProfiles[email][role],
+    ...data,
+    lastUpdated: Date.now(),
+    cycleId: window.__cycleId
+  };
+  
+  // Persist to localStorage
+  try {
+    localStorage.setItem(`user_profile_${email}`, JSON.stringify(window.__userProfiles[email]));
+  } catch (e) {
+    console.warn('Failed to save user profile:', e);
+  }
+};
+
+/* Helper to load user profile data */
+window.GV.loadUserProfile = (email, role) => {
+  if (!email) return null;
+  
+  // Try loading from memory first
+  if (window.__userProfiles[email] && window.__userProfiles[email][role]) {
+    return window.__userProfiles[email][role];
+  }
+  
+  // Try loading from localStorage
+  try {
+    const saved = localStorage.getItem(`user_profile_${email}`);
+    if (saved) {
+      window.__userProfiles[email] = JSON.parse(saved);
+      return window.__userProfiles[email][role] || {};
+    }
+  } catch (e) {
+    console.warn('Failed to load user profile:', e);
+  }
+  
+  return {};
+};
+
 /* ---------- Global CSS & Celebration FX ---------- */
 const GlobalFX = () => (
   <style>{`
@@ -126,7 +313,12 @@ const GlobalFX = () => (
       75% { transform: translate(-4px,-3px) rotate(1deg) }
       100% { transform: translate(0,0) rotate(0deg) }
     }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
     .float-gnome, .float-gnome-sm { animation: gfloatdance 3.2s ease-in-out infinite; }
+    .spin-logo { animation: spin 3s linear infinite; }
     .coin-nug-fall { position: fixed; top: -5vh; pointer-events: none; z-index: 9999; }
     @keyframes fall { to { transform: translateY(110vh) rotate(360deg); opacity: 0.9; } }
     .scan-overlay::after{
@@ -210,21 +402,46 @@ const GlobalFX = () => (
       color: #6b7280;      /* gray-500 */
       border-color: #d1d5db;
       cursor: not-allowed;
+      pointer-events: none;
     }
     .slot-reel {
-      width: 88px; height: 88px; border-radius: 12px; border: 1px solid #e5e7eb;
-      display: flex; align-items: center; justify-content: center; background: #fff;
+      width: 90px; height: 300px; border-radius: 12px; border: 2px solid #374151;
+      overflow: hidden; background: linear-gradient(#f9fafb, #e5e7eb);
+      position: relative;
     }
-    .slot-reel img { width: 56px; height: 56px; object-fit: contain; }
+    .slot-reel-strip {
+      display: flex; flex-direction: column; position: relative;
+      transition: transform 0.1s linear;
+    }
+    .slot-reel-item {
+      width: 90px; height: 100px; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .slot-reel-item img { width: 70px; height: 70px; object-fit: contain; }
     .slot-frame {
-      border-radius: 16px; border: 2px solid #111; background: linear-gradient(#111,#000);
-      padding: 12px;
+      border-radius: 20px; border: 4px solid #1f2937; background: linear-gradient(135deg, #1f2937, #111827);
+      padding: 16px; box-shadow: 0 20px 40px rgba(0,0,0,0.6);
     }
     .slot-viewport {
-      background: #0a0a0a; border-radius: 12px; padding: 10px;
+      background: linear-gradient(135deg, #0f172a, #1e293b); 
+      border-radius: 16px; padding: 12px;
+      box-shadow: inset 0 4px 12px rgba(0,0,0,0.5);
     }
     .slot-status {
-      font-size: 12px; color: #374151; margin-top: 6px; text-align: center;
+      font-size: 14px; color: #94a3b8; margin-top: 8px; text-align: center; font-weight: 600;
+    }
+    @keyframes spin-reel {
+      0%   { transform: translateY(0); }
+      100% { transform: translateY(-100%); }
+    }
+    .spinning {
+      animation: spin-reel 0.1s linear infinite;
+    }
+    .middle-row-highlight {
+      position: absolute; top: 100px; left: 0; right: 0; height: 100px;
+      border: 3px solid #fbbf24; border-radius: 8px;
+      pointer-events: none; z-index: 10;
+      box-shadow: 0 0 20px rgba(251,191,36,0.6);
     }
   `}</style>
 );
@@ -475,7 +692,13 @@ window.GV.fmtMoney=n=>'$'+Number(n||0).toFixed(2);
 window.GV.nowMs   =()=>Date.now();
 window.GV.thirtyAgo=()=>window.GV.nowMs()-30*24*60*60*1000;
 
-window.GV.addrToLatLng=a=>{
+window.GV.addrToLatLng=(a, partner)=>{
+  // If partner object provided and has exact coordinates, use those
+  if (partner && partner.lat && partner.lng) {
+    return { lat: partner.lat, lng: partner.lng };
+  }
+  
+  // Otherwise use hash-based approximation
   const base={lat:27.977,lng:-82.832};
   let h=0;for(let i=0;i<a.length;i++)h=(h*31+a.charCodeAt(i))>>>0;
   const latOff=((h%2000)/2000-.5)*.08,lngOff=(((h/2000)%2000)/2000-.5)*.08;
@@ -624,14 +847,39 @@ window.Components.ActiveBadge=({active})=>(
   <span className={`text-[10px] px-2 py-0.5 rounded-full border ${active?'bg-green-50 border-green-500':'bg-gray-50'}`}>{active?'Active':'Inactive'}</span>
 );
 
+window.Components.CycleBadge = function({ className="" }) {
+  const [cid, setCid] = React.useState(() => window.GV.getCycleId());
+  
+  React.useEffect(() => {
+    function onStorage(e){
+      if (e.key === "__gnome_cycle_id") {
+        const v = localStorage.getItem("__gnome_cycle_id");
+        if (v) setCid(v);
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+  
+  const label = cid?.replace(/^cycle_/, "") || "—";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] bg-white shadow-sm ${className}`}
+      title="The current hunt cycle. Admin bumps this when winners are published.">
+      <span className="w-1 h-1 rounded-full bg-emerald-500" />
+      <span className="font-medium text-[9px]">Cycle</span>
+      <span className="font-mono text-[8px]">{label}</span>
+    </span>
+  );
+};
+
 window.Components.PopularityGrid=function({title,showActive}){
   const rows=window.GV.popularity30d(); const max=Math.max(1,...rows.map(r=>r.scans));
   return (
-    <div className="rounded-2xl border p-3 bg-white">
+    <div className="rounded-2xl border p-3 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white">
       <h3 className="font-semibold text-sm mb-2">{title}</h3>
       <div className="grid md:grid-cols-5 gap-2">
         {rows.map(r=>(
-          <div key={r.id} className="rounded-2xl border p-3 bg-white">
+          <div key={r.id} className="rounded-2xl border p-3 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white">
             <div className="flex items-center gap-2 mb-2 text-sm font-semibold">
               <img src={r.image} className="w-5 h-5 object-contain" alt=""/>{`#${r.id} ${r.name}`}
               {showActive && <span className="ml-auto"><window.Components.ActiveBadge active={r.active}/></span>}
@@ -659,7 +907,7 @@ window.Components.InfoCard = function({ lsKey, icon="ℹ️", title, children, d
     setOpen(false);
   }
   return (
-    <div className="rounded-2xl border p-3 bg-white shadow-sm">
+    <div className="rounded-2xl border p-3 bg-white shadow-sm dark:bg-gray-800 dark:border-gray-700 dark:text-white">
       <div className="flex items-start gap-2">
         <div className="text-xl leading-none">{icon}</div>
         <div className="flex-1">
@@ -795,7 +1043,7 @@ window.Components.DiscoverPage = function() {
           const partner = window.__partners.find(p => p.id === assignment.partnerId);
           if (!partner) return;
           
-          const gnomeLocation = window.GV.addrToLatLng(partner.address);
+          const gnomeLocation = window.GV.addrToLatLng(partner.address, partner); // Pass partner for exact coordinates
           const distance = Math.sqrt(
             Math.pow(userLat - gnomeLocation.lat, 2) + 
             Math.pow(userLng - gnomeLocation.lng, 2)
@@ -851,9 +1099,10 @@ window.Components.DiscoverPage = function() {
       <div className="max-w-2xl mx-auto p-6">
         <div className="rounded-2xl border-2 border-yellow-400 bg-gradient-to-br from-yellow-50 to-orange-50 p-8 text-center relative overflow-hidden">
           <div className="mb-6">
-            <h1 className="text-3xl font-black text-orange-900 mb-2">
-              🌸 WildFlower Gnomeville<br/>Scavenger Hunt!
-            </h1>
+            <div className="flex flex-col items-center mb-2">
+              <img src="https://raw.githubusercontent.com/promos-cmyk/legendary-octo-broccoli/main/wildflower-favicon.png" alt="Wildflower" className="w-48 h-48 object-contain spin-logo mb-0.5"/>
+              <h1 className="text-4xl md:text-5xl font-black text-orange-900">WildFlower Gnomeville</h1>
+            </div>
             <div className="inline-block bg-yellow-400 text-yellow-900 font-black px-6 py-2 rounded-full text-xl border-2 border-yellow-600 shadow-lg">
               Status: PENDING
             </div>
@@ -874,7 +1123,7 @@ window.Components.DiscoverPage = function() {
           </div>
           
           <div className="bg-white rounded-xl p-4 mb-4 border-2 border-orange-300">
-            <p className="text-gray-800 text-sm mb-2">
+            <p className="text-gray-800 text-lg mb-2">
               🎮 <strong>The hunt hasn't started yet!</strong>
             </p>
             <p className="text-gray-700 text-xs">
@@ -885,7 +1134,7 @@ window.Components.DiscoverPage = function() {
           
           <button 
             onClick={() => window.location.href = '/?enableMap=true'}
-            className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-6 rounded-full text-sm transition-all active:scale-95"
+            className="bg-orange-600 hover:bg-orange-700 text-black font-bold py-3 px-6 rounded-full text-sm transition-all active:scale-95"
           >
             🗺️ Go to Participant Map
           </button>
@@ -1178,6 +1427,379 @@ window.Components.GnomeClue = function({ gnomeId }) {
   );
 };
 
+/* ---------- Bonus Page (Slot Machine) ---------- */
+window.Components.BonusPage = function({ user, role }) {
+  const userEmail = user?.email;
+  const storageKey = userEmail || window.GV.DEVICE_ID; // Use email if logged in, otherwise device ID
+  const BONUS_SPINS_KEY = `bonus_spins_${storageKey}`;
+
+  function readBonusData() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(BONUS_SPINS_KEY));
+      return saved || { remaining: 0, totalWon: 0, wonGnomes: [] };
+    } catch { 
+      return { remaining: 0, totalWon: 0, wonGnomes: [] };
+    }
+  }
+
+  const initialData = readBonusData();
+  const [remainingSpins, setRemainingSpins] = useState(initialData.remaining);
+  const [totalWon, setTotalWon] = useState(initialData.totalWon);
+  const [wonGnomes, setWonGnomes] = useState(initialData.wonGnomes || []);
+  const [spinning, setSpinning] = useState(false);
+  const [reels, setReels] = useState(() => {
+    const gnomes = window.GV.GNOMES;
+    return Array(5).fill(0).map(() => 
+      Array(10).fill(0).map(() => Math.floor(Math.random() * gnomes.length))
+    );
+  });
+  const [reelOffsets, setReelOffsets] = useState([0, 0, 0, 0, 0]);
+  const [winMsg, setWinMsg] = useState("");
+
+  function persistBonusData(remaining, totalWon, wonGnomes) {
+    try {
+      localStorage.setItem(BONUS_SPINS_KEY, JSON.stringify({
+        remaining, totalWon, wonGnomes
+      }));
+    } catch(e) { console.warn('persist bonus failed', e); }
+  }
+
+  // Listen for bonus push events
+  useEffect(() => {
+    function onStorage(e) {
+      if (e.key === "__bonus_push") {
+        try {
+          const pushData = JSON.parse(e.newValue);
+          if (pushData && pushData.count > 0) {
+            const lastPushId = localStorage.getItem("__last_bonus_push_id");
+            if (lastPushId !== pushData.pushId) {
+              setRemainingSpins(prev => {
+                const newRemaining = prev + pushData.count;
+                setTotalWon(currentTotal => {
+                  setWonGnomes(currentWon => {
+                    persistBonusData(newRemaining, currentTotal, currentWon);
+                    return currentWon;
+                  });
+                  return currentTotal;
+                });
+                return newRemaining;
+              });
+              localStorage.setItem("__last_bonus_push_id", pushData.pushId);
+            }
+          }
+        } catch(err) { console.warn('bonus push parse failed', err); }
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  // Check for bonus push on mount and poll every second
+  useEffect(() => {
+    function checkBonusPush() {
+      try {
+        // First check localStorage
+        let pushData = JSON.parse(localStorage.getItem("__bonus_push"));
+        
+        // If not in localStorage, check cookie (for cross-subdomain support)
+        if (!pushData) {
+          const cookies = document.cookie.split(';');
+          const bonusCookie = cookies.find(c => c.trim().startsWith('__bonus_push='));
+          if (bonusCookie) {
+            try {
+              const cookieValue = decodeURIComponent(bonusCookie.split('=')[1]);
+              pushData = JSON.parse(cookieValue);
+              // Copy to localStorage for future checks
+              if (pushData) {
+                localStorage.setItem("__bonus_push", JSON.stringify(pushData));
+              }
+            } catch(e) {
+              console.warn('Failed to parse bonus push cookie', e);
+            }
+          }
+        }
+        
+        if (pushData && pushData.count > 0) {
+          const lastPushId = localStorage.getItem("__last_bonus_push_id");
+          if (lastPushId !== pushData.pushId) {
+            setRemainingSpins(prev => {
+              const newRemaining = prev + pushData.count;
+              setTotalWon(currentTotal => {
+                setWonGnomes(currentWon => {
+                  persistBonusData(newRemaining, currentTotal, currentWon);
+                  return currentWon;
+                });
+                return currentTotal;
+              });
+              return newRemaining;
+            });
+            localStorage.setItem("__last_bonus_push_id", pushData.pushId);
+          }
+        }
+      } catch(e) {
+        console.warn('checkBonusPush failed', e);
+      }
+    }
+    
+    // Check immediately on mount
+    checkBonusPush();
+    
+    // Poll every second for new pushes
+    const interval = setInterval(checkBonusPush, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-redirect when spins exhausted
+  useEffect(() => {
+    if (remainingSpins === 0 && totalWon > 0) {
+      setTimeout(() => {
+        window.location.href = 'https://gnomeville.app';
+      }, 3000);
+    }
+  }, [remainingSpins, totalWon]);
+
+  function randomGnomeIndex() {
+    return Math.floor(Math.random() * window.GV.GNOMES.length);
+  }
+
+  function startSpin() {
+    if (spinning || remainingSpins <= 0) return;
+    setSpinning(true);
+    setWinMsg("");
+
+    const willWin = Math.random() < 0.15;
+    const targetIndex = randomGnomeIndex();
+
+    // Generate new reel strips
+    const newReels = Array(5).fill(0).map(() => 
+      Array(10).fill(0).map(() => randomGnomeIndex())
+    );
+
+    // Set middle row (index 1) to winning gnomes if winning
+    if (willWin) {
+      newReels.forEach(reel => { reel[1] = targetIndex; });
+    }
+
+    setReels(newReels);
+
+    // Animate reels spinning
+    const spinIntervals = [];
+    for (let i = 0; i < 5; i++) {
+      let offset = 0;
+      const interval = setInterval(() => {
+        offset = (offset + 10) % 100;
+        setReelOffsets(prev => {
+          const next = [...prev];
+          next[i] = offset;
+          return next;
+        });
+      }, 50);
+      spinIntervals.push(interval);
+
+      setTimeout(() => {
+        clearInterval(interval);
+        setReelOffsets(prev => {
+          const next = [...prev];
+          next[i] = 0;
+          return next;
+        });
+      }, 1500 + i * 300);
+    }
+
+    setTimeout(() => {
+      setSpinning(false);
+      spinIntervals.forEach(clearInterval);
+
+      const middleRow = newReels.map(reel => reel[1]);
+      const isWin = middleRow.every((v, i, a) => v === a[0]);
+
+      if (isWin) {
+        const winGnome = window.GV.GNOMES[middleRow[0]];
+        setWinMsg("🎉 NEW GNOME UNLOCKED! 🎉");
+        window.GV.celebrateRain();
+        
+        const newWonGnomes = [...wonGnomes, winGnome];
+        const newTotalWon = totalWon + 1;
+        setWonGnomes(newWonGnomes);
+        setTotalWon(newTotalWon);
+
+        if (role === 'participant') {
+          const foundMethods = JSON.parse(localStorage.getItem(`found_methods_${window.GV.DEVICE_ID}`) || '[]');
+          const foundIds = foundMethods.map(f => f.gnomeId);
+          if (!foundIds.includes(winGnome.id)) {
+            foundMethods.push({gnomeId: winGnome.id, method: 'slot', ts: Date.now()});
+            localStorage.setItem(`found_methods_${window.GV.DEVICE_ID}`, JSON.stringify(foundMethods));
+          }
+        }
+
+        const newRemaining = remainingSpins - 1;
+        setRemainingSpins(newRemaining);
+        persistBonusData(newRemaining, newTotalWon, newWonGnomes);
+      } else {
+        setWinMsg("No match this time. Try again!");
+        const newRemaining = remainingSpins - 1;
+        setRemainingSpins(newRemaining);
+        persistBonusData(newRemaining, totalWon, wonGnomes);
+      }
+    }, 2500);
+  }
+
+  // Admin can add spins for testing
+  function adminAddSpins() {
+    if (role !== 'admin') return;
+    const newRemaining = remainingSpins + 3;
+    setRemainingSpins(newRemaining);
+    persistBonusData(newRemaining, totalWon, wonGnomes);
+  }
+
+  const hasSpins = remainingSpins > 0;
+  const canSpin = hasSpins && !spinning;
+
+  return (
+    <div className="max-w-4xl mx-auto p-6">
+      <div className="mb-6 text-center">
+        <h1 className="text-3xl md:text-4xl font-black mb-2">🎰 Gnome Bonus Slot Machine</h1>
+        <p className="text-gray-600">Match all 5 gnomes in the middle row to unlock a bonus gnome!</p>
+      </div>
+
+      <div className="rounded-2xl border-2 border-emerald-500 bg-gradient-to-br from-emerald-50 to-teal-50 p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold">Your Status</h3>
+          {user && <div className="text-[11px] text-gray-600">Signed in as <span className="font-mono">{user.email}</span></div>}
+        </div>
+        
+        <div className="grid md:grid-cols-3 gap-4 mb-4">
+          <div className="bg-white rounded-lg p-3 border">
+            <div className="text-xs text-gray-500 mb-1">Remaining Spins</div>
+            <div className="text-3xl font-black text-emerald-600">{remainingSpins}</div>
+          </div>
+          <div className="bg-white rounded-lg p-3 border">
+            <div className="text-xs text-gray-500 mb-1">Gnomes Won (Session)</div>
+            <div className="text-3xl font-black text-blue-600">{totalWon}</div>
+          </div>
+          <div className="bg-white rounded-lg p-3 border">
+            <div className="text-xs text-gray-500 mb-1">Win Rate</div>
+            <div className="text-lg font-bold">~15%</div>
+          </div>
+        </div>
+
+        {role === 'admin' && (
+          <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3 mb-4">
+            <div className="text-xs font-semibold text-yellow-900 mb-2">Admin Controls</div>
+            <button 
+              onClick={adminAddSpins}
+              className="rounded bg-yellow-600 text-white px-3 py-1.5 text-sm hover:bg-yellow-700"
+            >
+              Add 3 Spins (Testing)
+            </button>
+          </div>
+        )}
+
+        {!hasSpins ? (
+          <div className="bg-blue-50 border border-blue-300 rounded-lg p-4 text-center">
+            <p className="text-sm text-blue-900">
+              {totalWon > 0 
+                ? '� Session complete! Redirecting you back to the main page...'
+                : '🔓 Wait for bonus spins to be pushed by admin!'}
+            </p>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Realistic 3x5 Slot Machine */}
+      <div className="slot-frame mx-auto max-w-3xl">
+        <div className="slot-viewport relative">
+          {/* Middle row highlight */}
+          <div className="middle-row-highlight" />
+          
+          <div className="grid grid-cols-5 gap-2 justify-items-center">
+            {reels.map((reel, reelIdx) => (
+              <div key={reelIdx} className="slot-reel">
+                <div 
+                  className={`slot-reel-strip ${spinning ? 'spinning' : ''}`}
+                  style={{transform: `translateY(${-reelOffsets[reelIdx]}px)`}}
+                >
+                  {reel.map((gnomeIdx, itemIdx) => (
+                    <div key={itemIdx} className="slot-reel-item">
+                      <img 
+                        src={window.GV.GNOMES[gnomeIdx]?.image} 
+                        alt={window.GV.GNOMES[gnomeIdx]?.name || ''} 
+                        className="float-gnome"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <button
+            className={`rounded-lg px-8 py-4 text-xl font-black shadow-lg transition-all ${
+              canSpin
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 hover:shadow-xl'
+                : 'bg-gray-300 text-gray-600 cursor-not-allowed pointer-events-none'
+            }`}
+            onClick={startSpin}
+          >
+            {!hasSpins ? '🎫 No Spins' : (spinning ? '🎰 Spinning…' : '🎰 SPIN NOW')}
+          </button>
+          
+          {hasSpins && (
+            <p className="text-sm text-gray-500">
+              {remainingSpins} spin{remainingSpins !== 1 ? 's' : ''} remaining
+            </p>
+          )}
+        </div>
+
+        {winMsg && (
+          <div className="text-center mt-6">
+            <div className="text-3xl font-black text-emerald-600 mb-2">{winMsg}</div>
+            {wonGnomes.length > 0 && wonGnomes[wonGnomes.length - 1] && (
+              <div className="text-lg text-gray-700">
+                You unlocked <strong>{wonGnomes[wonGnomes.length - 1].name}</strong>!
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="text-xs text-center text-gray-600 mt-4">
+          Match all 5 gnomes in the highlighted middle row to unlock a bonus gnome!
+        </div>
+      </div>
+
+      {/* Won Gnomes This Session */}
+      {wonGnomes.length > 0 && (
+        <div className="mt-6 rounded-2xl border-2 border-blue-400 bg-gradient-to-br from-blue-50 to-cyan-50 p-6">
+          <h3 className="font-semibold mb-3 text-blue-900">🎉 Gnomes Won This Session ({wonGnomes.length})</h3>
+          <div className="grid grid-cols-5 gap-3">
+            {wonGnomes.map((gnome, idx) => (
+              <div key={idx} className="bg-white rounded-lg p-2 border border-blue-300 text-center">
+                <img src={gnome.image} alt={gnome.name} className="w-14 h-14 mx-auto float-gnome-sm" />
+                <p className="text-[10px] font-semibold mt-1">{gnome.name}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* How It Works */}
+      <div className="mt-8 rounded-2xl border p-6 bg-white">
+        <h3 className="font-semibold mb-3">How It Works</h3>
+        <ul className="list-disc ml-4 space-y-2 text-sm text-gray-700">
+          <li>Admin pushes bonus spins to all participants</li>
+          <li>Match all 5 gnomes in the middle row to unlock a bonus gnome</li>
+          <li>Won gnomes are marked as blue in your progress tracker</li>
+          <li>Unlocked gnomes qualify you for special rewards</li>
+          <li>Visit gnomeville.app to see your complete collection!</li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
 /* ---------- Signup Modal ---------- */
 window.Components.SignupModal=function({role,onDone}){
   const [name,setName]=useState(""); const [email,setEmail]=useState(""); const [phone,setPhone]=useState("");
@@ -1283,8 +1905,8 @@ window.GV.aHashFromDataUrl = function(dataUrl){
 /* =============================================================================
    PARTICIPANT COMPONENT
 ============================================================================= */
-function Participant({user}){
-  const [found,setFound]=useState([]);
+const Participant = React.forwardRef(function Participant({user, darkMode, setDarkMode}, ref) {
+  const [found,setFound]=useState([]); // Array of {gnomeId, method: 'trigger'|'slot', ts}
   const [message,setMessage]=useState("");
   const [scanOpen,setScanOpen]=useState(false);
   const [unlocked,setUnlocked]=useState([]);
@@ -1297,9 +1919,88 @@ function Participant({user}){
   const [assignmentsHash, setAssignmentsHash] = useState('');
   const [hintsHash, setHintsHash] = useState('');
   
+  // --- Hunting Mode States ---
+  const [huntingMode, setHuntingMode] = useState(false);
+  const [selectedWeapon, setSelectedWeapon] = useState('net'); // 'net', 'crossbow', 'shortbow', 'dart'
+  const [gnomeSpotted, setGnomeSpotted] = useState(null); // {gnomeId, name, image, position, speed}
+  const [gnomeRunning, setGnomeRunning] = useState(false);
+  const [shotFired, setShotFired] = useState(false);
+  const [captureSuccess, setCaptureSuccess] = useState(null);
+  const huntingVideoRef = useRef(null);
+  const huntingCanvasRef = useRef(null);
+  const huntingStreamRef = useRef(null);
+  const gnomePositionRef = useRef({ x: 50, y: 50 }); // percentage position
+  const gnomeDirectionRef = useRef({ dx: 2, dy: 1.5 }); // movement vector
+  const animationFrameRef = useRef(null);
+  
   // --- Gnome Bonus: persistent by device AND by cycle ---
   const CURRENT_CYCLE_ID = window.GV.getCycleId();
-  const BONUS_KEY = `bonus_state_${window.GV.DEVICE_ID}`; // stores {cycleId, ready, spinUsed}
+  const userEmail = user?.email;
+  const storageKey = userEmail || window.GV.DEVICE_ID; // Use email if logged in, otherwise device ID
+  const BONUS_KEY = `bonus_state_${storageKey}`; // stores {cycleId, ready, spinUsed}
+  const BONUS_SPINS_KEY = `bonus_spins_${storageKey}`; // stores {remaining, totalWon, wonGnomes}
+  
+  const [remainingBonusSpins, setRemainingBonusSpins] = useState(0);
+  const [bonusCampaign, setBonusCampaign] = useState(null); // {count, startTime, endTime, durationHours, pushId}
+  const [campaignTimeLeft, setCampaignTimeLeft] = useState(0); // milliseconds
+
+  // Load user profile data on mount or when user changes
+  useEffect(() => {
+    if (!userEmail) {
+      // No user logged in, use device-based storage
+      const savedFound = JSON.parse(localStorage.getItem(`found_methods_${window.GV.DEVICE_ID}`) || '[]');
+      setFound(savedFound);
+    } else {
+      // User logged in, load their profile
+      const profile = window.GV.loadUserProfile(userEmail, 'participant');
+      
+      if (profile.foundGnomes) {
+        setFound(profile.foundGnomes);
+      }
+      
+      if (profile.unlocked) {
+        setUnlocked(profile.unlocked);
+      }
+    }
+    
+    // Load remaining bonus spins
+    try {
+      const bonusData = JSON.parse(localStorage.getItem(BONUS_SPINS_KEY));
+      console.log('Loading bonus spins:', BONUS_SPINS_KEY, bonusData);
+      if (bonusData && bonusData.remaining) {
+        setRemainingBonusSpins(bonusData.remaining);
+      } else {
+        setRemainingBonusSpins(0);
+      }
+    } catch {
+      setRemainingBonusSpins(0);
+    }
+  }, [userEmail, BONUS_SPINS_KEY]);
+
+  // Helper to save found gnomes with methods
+  function saveFoun(foundArray) {
+    // Save to localStorage (for device-based access)
+    localStorage.setItem(`found_methods_${storageKey}`, JSON.stringify(foundArray));
+    setFound(foundArray);
+    
+    // If user is logged in, also save to their profile
+    if (userEmail) {
+      window.GV.saveUserProfile(userEmail, 'participant', {
+        foundGnomes: foundArray
+      });
+    }
+  }
+  
+  // Save unlocked coupons to user profile
+  function saveUnlocked(unlockedArray) {
+    setUnlocked(unlockedArray);
+    
+    if (userEmail) {
+      window.GV.saveUserProfile(userEmail, 'participant', {
+        unlocked: unlockedArray
+      });
+    }
+  }
 
   function readBonusState() {
     try {
@@ -1323,6 +2024,7 @@ function Participant({user}){
   const [reels,      setReels]      = useState([0,1,2,3,4]);
   const [winMsg,     setWinMsg]     = useState("");
   const [gameUnlockGuard, setGameUnlockGuard] = useState(false);
+  const [bonusPushNotification, setBonusPushNotification] = useState(null); // {count, pushId}
 
   function persistBonusState(ready, used) {
     try {
@@ -1334,6 +2036,18 @@ function Participant({user}){
   }
 
   const videoRef=useRef(null), canvasRef=useRef(null), loopRef=useRef(null), streamRef=useRef(null);
+
+  // Expose openBonusModal method to parent via ref
+  React.useImperativeHandle(ref, () => ({
+    openBonusModal: () => {
+      // Open bonus modal using admin-pushed spins
+      if (remainingBonusSpins > 0) {
+        setBonusOpen(true);
+        setWinMsg("");
+        setReels([0,1,2,3,4]);
+      }
+    }
+  }));
   const mapRef=useRef(null), meMarkerRef=useRef(null);
   const watchIdRef=useRef(null);
   const gnomeMarkersRef=useRef({}); // Track gnome markers separately
@@ -1425,9 +2139,147 @@ function Participant({user}){
           // Optional: toast the user "New hunt cycle started!"
         }
       }
+      
+      // Listen for bonus push events from Admin
+      if (e.key === "__bonus_push") {
+        try {
+          const pushData = JSON.parse(e.newValue);
+          if (pushData && pushData.count > 0) {
+            // Check if we've already seen this push
+            const lastPushId = localStorage.getItem("__last_bonus_push_id");
+            if (lastPushId !== pushData.pushId) {
+              // New bonus push! Show fireworks celebration
+              setBonusPushNotification(pushData);
+              localStorage.setItem("__last_bonus_push_id", pushData.pushId);
+              window.GV.celebrateRain();
+            }
+          }
+        } catch {}
+      }
     }
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  // Poll for bonus campaigns and countdown timer
+  useEffect(() => {
+    function checkCampaign() {
+      try {
+        // Check for active campaign
+        let campaignData = JSON.parse(localStorage.getItem("__bonus_campaign"));
+        
+        // Check cookie as fallback
+        if (!campaignData) {
+          const cookies = document.cookie.split(';');
+          const campaignCookie = cookies.find(c => c.trim().startsWith('__bonus_campaign='));
+          if (campaignCookie) {
+            try {
+              const cookieValue = decodeURIComponent(campaignCookie.split('=')[1]);
+              campaignData = JSON.parse(cookieValue);
+              if (campaignData) {
+                localStorage.setItem("__bonus_campaign", JSON.stringify(campaignData));
+              }
+            } catch(e) {
+              console.warn('Failed to parse campaign cookie', e);
+            }
+          }
+        }
+        
+        if (campaignData) {
+          const now = Date.now();
+          const timeLeft = Math.max(0, campaignData.endTime - now);
+          
+          if (timeLeft > 0) {
+            // Campaign is active
+            setBonusCampaign(campaignData);
+            setCampaignTimeLeft(timeLeft);
+          } else {
+            // Campaign expired - clear it and expire spins
+            setBonusCampaign(null);
+            setCampaignTimeLeft(0);
+            localStorage.removeItem("__bonus_campaign");
+            
+            // Clear expired spins
+            const bonusData = JSON.parse(localStorage.getItem(BONUS_SPINS_KEY) || '{}');
+            if (bonusData.campaignId === campaignData.pushId) {
+              bonusData.remaining = 0;
+              bonusData.campaignExpiry = null;
+              bonusData.campaignId = null;
+              localStorage.setItem(BONUS_SPINS_KEY, JSON.stringify(bonusData));
+              setRemainingBonusSpins(0);
+            }
+          }
+        } else {
+          setBonusCampaign(null);
+          setCampaignTimeLeft(0);
+        }
+        
+        // Also check current bonus spins count
+        const bonusData = JSON.parse(localStorage.getItem(BONUS_SPINS_KEY));
+        console.log('Checking bonus spins:', BONUS_SPINS_KEY, bonusData, 'current:', remainingBonusSpins);
+        if (bonusData && bonusData.remaining !== remainingBonusSpins) {
+          console.log('Updating bonus spins from', remainingBonusSpins, 'to', bonusData.remaining);
+          setRemainingBonusSpins(bonusData.remaining || 0);
+        }
+      } catch(e) {
+        console.warn('Error checking campaign:', e);
+      }
+    }
+    
+    // Check immediately on mount
+    checkCampaign();
+    
+    // Poll every second for campaign updates and countdown
+    const interval = setInterval(checkCampaign, 1000);
+    
+    return () => clearInterval(interval);
+  }, [remainingBonusSpins, BONUS_SPINS_KEY]);
+
+  // Poll for bonus pushes every second (storage events don't fire in same tab)
+  useEffect(() => {
+    function checkBonusPush() {
+      try {
+        // Check localStorage first
+        let pushData = JSON.parse(localStorage.getItem("__bonus_push"));
+        
+        // If not found, check cookie (for cross-subdomain/cross-tab support)
+        if (!pushData) {
+          const cookies = document.cookie.split(';');
+          const bonusCookie = cookies.find(c => c.trim().startsWith('__bonus_push='));
+          if (bonusCookie) {
+            try {
+              const cookieValue = decodeURIComponent(bonusCookie.split('=')[1]);
+              pushData = JSON.parse(cookieValue);
+              // Copy to localStorage for future reference
+              if (pushData) {
+                localStorage.setItem("__bonus_push", JSON.stringify(pushData));
+              }
+            } catch(e) {
+              console.warn('Failed to parse bonus cookie', e);
+            }
+          }
+        }
+        
+        if (pushData && pushData.count > 0) {
+          const lastPushId = localStorage.getItem("__last_bonus_push_id");
+          if (lastPushId !== pushData.pushId) {
+            setBonusPushNotification(pushData);
+            localStorage.setItem("__last_bonus_push_id", pushData.pushId);
+            window.GV.celebrateRain();
+          }
+        }
+      } catch(e) {
+        console.warn('Error checking bonus push:', e);
+      }
+    }
+    
+    // Check immediately on mount
+    checkBonusPush();
+    
+    // Poll every second for new pushes
+    const interval = setInterval(checkBonusPush, 1000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(()=>{ // load unlocked from memory store
@@ -1444,6 +2296,16 @@ function Participant({user}){
 
   function grantOnScan(gnomeId){
     let granted=0;
+    
+    // Get the partner/establishment for this gnome
+    const gnomeAssignment = window.__gnomeAssignments[gnomeId];
+    const partner = gnomeAssignment ? (window.__partners || []).find(p => p.id === gnomeAssignment.partnerId) : null;
+    const partnerCity = partner && partner.address ? (() => {
+      const parts = partner.address.split(',');
+      return parts.length >= 2 ? parts[parts.length - 2].trim() : null;
+    })() : null;
+    const partnerEstablishment = partner?.establishment || null;
+    
     const coupons=(window.__coupons||[]).filter(c=>{
       if(c.blocked) return false;
       const now=Date.now();
@@ -1451,10 +2313,23 @@ function Participant({user}){
       const capOk=!(c.scanCap>0 && (c.unlocks||0)>=c.scanCap);
       const active=c.active&&windowOk&&capOk;
       if(!active) return false;
-      if(c.target==='all') return true;
-      if(c.target==='golden'&&window.__goldenScheduled) return window.__goldenScheduled.gnomeId===gnomeId;
-      if(c.target==='one') return c.gnomeId===gnomeId;
-      return false;
+      
+      // Check gnome targeting
+      if(c.target==='one' && c.gnomeId !== gnomeId) return false;
+      if(c.target==='golden'&&window.__goldenScheduled && window.__goldenScheduled.gnomeId !== gnomeId) return false;
+      // c.target === 'all' passes through
+      
+      // Check city filter
+      if(c.cityFilter && c.cityFilter !== 'all') {
+        if(!partnerCity || c.cityFilter !== partnerCity) return false;
+      }
+      
+      // Check establishment filter
+      if(c.establishmentFilter && c.establishmentFilter !== 'all') {
+        if(!partnerEstablishment || c.establishmentFilter !== partnerEstablishment) return false;
+      }
+      
+      return true;
     });
 
     for(const c of coupons){
@@ -1463,16 +2338,23 @@ function Participant({user}){
 
       if(!c.system){ // advertiser pay-per-unlock
         const adv=(window.__advertisers||[]).find(a=>a.id===c.advertiserId);
-        if(!(adv && adv.cardOnFile) || adv.blocked) continue;
-        window.__charges.push({
-          type:'advertiser',
-          advertiserId:adv.id,
-          amount:window.__costPerUnlock,
-          ts:Date.now(),
-          note:`Unlock ${c.title}`,
-          deviceId:window.GV.DEVICE_ID,
-          gnomeId
-        });
+        if(adv?.freeAdvertising) {
+          // Free advertising - no charge
+        } else if(!(adv && adv.cardOnFile) || adv.blocked) {
+          continue; // Skip if no card on file (unless free advertising)
+        } else {
+          // Charge for unlock
+          window.__charges.push({
+            type:'advertiser',
+            advertiserId:adv.id,
+            amount:window.__costPerUnlock,
+            ts:Date.now(),
+            note:`Unlock ${c.title}`,
+            deviceId:window.GV.DEVICE_ID,
+            gnomeId
+          });
+        }
+        
         // Create unlock event for advertiser celebration
         window.__advertiserUnlockEvents.push({
           advertiserId: adv.id,
@@ -1506,7 +2388,11 @@ function Participant({user}){
   }
 
   function onGnomeMatched(gnomeId){
-    if(!found.includes(gnomeId)) setFound(p=>[...p,gnomeId]);
+    const foundIds = found.map(f => f.gnomeId);
+    if(!foundIds.includes(gnomeId)) {
+      const newFound = [...found, {gnomeId, method: 'trigger', ts: Date.now()}];
+      saveFound(newFound);
+    }
     window.__scans.push({gnomeId,ts:Date.now(),deviceId:window.GV.DEVICE_ID,userEmail:user?.email});
     const g = window.GV.GNOMES.find(x=>x.id===gnomeId);
     const unlockedCount=grantOnScan(gnomeId);
@@ -1532,7 +2418,7 @@ function Participant({user}){
 
   function closeBonus() {
     setBonusOpen(false);
-    persistBonusState(bonusReady, spinUsed);
+    setWinMsg("");
   }
 
   function randomIndex() {
@@ -1540,8 +2426,14 @@ function Participant({user}){
   }
 
   function startSpin() {
-    if (spinning || spinUsed) return;
+    if (spinning || remainingBonusSpins === 0) return;
     setSpinning(true);
+
+    // Consume one spin immediately
+    const bonusData = JSON.parse(localStorage.getItem(BONUS_SPINS_KEY) || '{}');
+    bonusData.remaining = Math.max(0, (bonusData.remaining || 0) - 1);
+    localStorage.setItem(BONUS_SPINS_KEY, JSON.stringify(bonusData));
+    setRemainingBonusSpins(bonusData.remaining);
 
     // Decide win/lose: ~1/8 win chance
     const willWin = Math.random() < 0.125;
@@ -1591,17 +2483,18 @@ function Participant({user}){
               setGameUnlockGuard(true);
               onGnomeMatched(winGnome.id);
               setGameUnlockGuard(false);
-              // return to Participant page after a short celebration
+              // Close modal after celebration
               setTimeout(()=>{
                 closeBonus();
               }, 1200);
             } else {
               setWinMsg("No match — better luck next time!");
+              // Auto-close after 2 seconds on loss
+              setTimeout(()=>{
+                closeBonus();
+              }, 2000);
             }
             setSpinning(false);
-            setSpinUsed(true);
-            setBonusReady(false); // consume the bonus
-            persistBonusState(false, true);
           }, 300);
         }
       }, 900 + i*550);
@@ -1705,6 +2598,220 @@ function Participant({user}){
     if(meta.deviceId!==window.GV.DEVICE_ID) return alert("Not valid for this device.");
     if(meta.used) return alert("Already used.");
     meta.used=true; window.__redemptions.push({ts:Date.now(),deviceId:window.GV.DEVICE_ID,code,couponId:meta.couponId,gnomeId:meta.gnomeId});
+    alert("Redeemed successfully! Show this code at the establishment.");
+  }
+
+  // === HUNTING MODE FUNCTIONS ===
+  async function startHuntingMode(){
+    try{
+      const constraints={video:{facingMode:"environment"}};
+      const stream=await navigator.mediaDevices.getUserMedia(constraints);
+      huntingStreamRef.current=stream;
+      setHuntingMode(true);
+      setTimeout(startHuntingScanLoop,30);
+    }catch(e){ 
+      alert("Camera access denied or unavailable."); 
+    }
+  }
+
+  function stopHuntingMode(){
+    cancelAnimationFrame(animationFrameRef.current);
+    if(huntingStreamRef.current){ 
+      huntingStreamRef.current.getTracks().forEach(t=>t.stop()); 
+      huntingStreamRef.current=null; 
+    }
+    setHuntingMode(false);
+    setGnomeSpotted(null);
+    setGnomeRunning(false);
+    setShotFired(false);
+    setCaptureSuccess(null);
+  }
+
+  function startHuntingScanLoop(){
+    const video=huntingVideoRef.current;
+    const canvas=huntingCanvasRef.current;
+    if(!video||!canvas) return;
+    
+    video.srcObject=huntingStreamRef.current;
+    video.setAttribute('playsinline',true);
+    video.play();
+    
+    const ctx=canvas.getContext('2d');
+    const targetList = Object.entries(window.__triggerImages||{})
+      .map(([gid,obj])=>({gnomeId:Number(gid),hash:obj.aHash}))
+      .filter(t=>!!t.hash);
+    const THRESHOLD = 10;
+
+    const tick=()=>{
+      if(video.readyState===video.HAVE_ENOUGH_DATA){
+        // Check if gnome is already spotted and running
+        if(!gnomeRunning){
+          // Scan for trigger image
+          const size=8;
+          canvas.width=size; canvas.height=size;
+          ctx.drawImage(video,0,0,size,size);
+          const data=ctx.getImageData(0,0,size,size).data;
+          
+          let sum=0; const gray=new Array(size*size);
+          for(let i=0;i<gray.length;i++){
+            const r=data[i*4], g=data[i*4+1], b=data[i*4+2];
+            const v=(r*0.299 + g*0.587 + b*0.114)|0;
+            gray[i]=v; sum+=v;
+          }
+          const avg=sum/gray.length;
+          let frameHash=0n;
+          for(let i=0;i<gray.length;i++){
+            frameHash = (frameHash<<1n) | (gray[i]>=avg ? 1n : 0n);
+          }
+
+          // Compare with all active triggers
+          for(const t of targetList){
+            const a = frameHash ^ t.hash;
+            let bits=a, count=0;
+            while(bits){ count++; bits &= (bits-1n); }
+            if(count <= THRESHOLD){
+              // Trigger detected! Spawn running gnome
+              const gnome = window.GV.GNOMES.find(g=>g.id===t.gnomeId);
+              if(gnome && !found.find(f=>f.gnomeId===gnome.id)){
+                spawnRunningGnome(gnome);
+              }
+              break;
+            }
+          }
+        }
+      }
+      animationFrameRef.current=requestAnimationFrame(tick);
+    };
+    animationFrameRef.current=requestAnimationFrame(tick);
+  }
+
+  function spawnRunningGnome(gnome){
+    // Start gnome at random edge position
+    const edges = [
+      {x: Math.random()*100, y: -5}, // top
+      {x: Math.random()*100, y: 105}, // bottom
+      {x: -5, y: Math.random()*100}, // left
+      {x: 105, y: Math.random()*100} // right
+    ];
+    const startPos = edges[Math.floor(Math.random()*edges.length)];
+    
+    gnomePositionRef.current = startPos;
+    
+    // Random direction toward center with some variance
+    const centerX = 50, centerY = 50;
+    const dx = (centerX - startPos.x) * 0.02 + (Math.random()-0.5)*2;
+    const dy = (centerY - startPos.y) * 0.02 + (Math.random()-0.5)*2;
+    gnomeDirectionRef.current = {dx, dy};
+    
+    setGnomeSpotted(gnome);
+    setGnomeRunning(true);
+    
+    // Start gnome movement animation
+    animateGnomeMovement();
+  }
+
+  function animateGnomeMovement(){
+    const speed = 1.5; // base speed multiplier
+    
+    const move = ()=>{
+      if(!gnomeRunning) return;
+      
+      const pos = gnomePositionRef.current;
+      const dir = gnomeDirectionRef.current;
+      
+      // Update position
+      pos.x += dir.dx * speed;
+      pos.y += dir.dy * speed;
+      
+      // Bounce off edges and change direction randomly
+      if(pos.x < 0 || pos.x > 100){
+        dir.dx = -dir.dx + (Math.random()-0.5)*0.5;
+        pos.x = Math.max(0, Math.min(100, pos.x));
+      }
+      if(pos.y < 0 || pos.y > 100){
+        dir.dy = -dir.dy + (Math.random()-0.5)*0.5;
+        pos.y = Math.max(0, Math.min(100, pos.y));
+      }
+      
+      // Random direction changes
+      if(Math.random() < 0.02){
+        dir.dx += (Math.random()-0.5)*1;
+        dir.dy += (Math.random()-0.5)*1;
+      }
+      
+      gnomePositionRef.current = {...pos};
+      gnomeDirectionRef.current = {...dir};
+      
+      // Force re-render to update gnome position
+      setGnomeSpotted(prev => prev ? {...prev} : null);
+      
+      setTimeout(move, 50); // ~20 FPS for smooth movement
+    };
+    
+    move();
+  }
+
+  function fireWeapon(){
+    if(shotFired) return;
+    
+    setShotFired(true);
+    
+    // If no gnome, just practice shooting
+    if(!gnomeRunning){
+      // Show practice shot feedback
+      setTimeout(()=>{
+        setShotFired(false);
+      }, 800);
+      return;
+    }
+    
+    // Check if crosshair (center) is near gnome position
+    const gnomePos = gnomePositionRef.current;
+    const centerX = 50, centerY = 50;
+    
+    // Calculate distance from center (crosshair) to gnome
+    const distance = Math.sqrt(
+      Math.pow(gnomePos.x - centerX, 2) + 
+      Math.pow(gnomePos.y - centerY, 2)
+    );
+    
+    // Hit detection - closer = easier to hit, weapon affects hit radius
+    const hitRadius = {
+      net: 15,      // Easiest - wide net
+      dart: 8,      // Harder - precise
+      shortbow: 10, // Medium
+      crossbow: 12  // Medium-easy
+    }[selectedWeapon] || 10;
+    
+    setTimeout(()=>{
+      if(distance < hitRadius){
+        // HIT! Capture successful
+        setCaptureSuccess(true);
+        setGnomeRunning(false);
+        
+        // Unlock the gnome
+        setTimeout(()=>{
+          onGnomeMatched(gnomeSpotted.gnomeId);
+          stopHuntingMode();
+        }, 1500);
+      } else {
+        // MISS! Gnome escapes
+        setCaptureSuccess(false);
+        setTimeout(()=>{
+          setGnomeRunning(false);
+          setGnomeSpotted(null);
+          setShotFired(false);
+          setCaptureSuccess(null);
+        }, 1500);
+      }
+    }, 500); // Delay for weapon animation
+  }
+
+  function redeem(code){
+    const meta=window.__uniqueCodes[code]; if(!meta) return alert("Invalid code.");
+    if(meta.deviceId!==window.GV.DEVICE_ID) return alert("Not valid for this device.");
+    if(meta.used) return alert("Already used.");
+    meta.used=true; window.__redemptions.push({ts:Date.now(),deviceId:window.GV.DEVICE_ID,code,couponId:meta.couponId,gnomeId:meta.gnomeId});
     alert("Redeemed!");
   }
   function addToWallet(couponId){
@@ -1737,7 +2844,7 @@ function Participant({user}){
       const p=(window.__partners||[]).find(pp=>pp.id===a.partnerId);
       if(!p) return;
       
-      const {lat,lng}=window.GV.addrToLatLng(p.address||''); 
+      const {lat,lng}=window.GV.addrToLatLng(p.address||'', p); // Pass partner object for exact coordinates
       const icon=window.L.icon({iconUrl:g.image,iconSize:[40,40],iconAnchor:[20,20]});
       const m=window.L.marker([lat,lng],{icon}).addTo(map);
       const riddle=riddleForPartner(p); const hint=activePartnerHintFor(g.id)?.text || '';
@@ -1796,7 +2903,7 @@ function Participant({user}){
       const p=(window.__partners||[]).find(pp=>pp.id===a.partnerId);
       if(!p) return;
       
-      const {lat,lng}=window.GV.addrToLatLng(p.address||''); 
+      const {lat,lng}=window.GV.addrToLatLng(p.address||'', p); // Pass partner object for exact coordinates
       const icon=window.L.icon({iconUrl:g.image,iconSize:[40,40],iconAnchor:[20,20]});
       const m=window.L.marker([lat,lng],{icon}).addTo(mapRef.current);
       
@@ -1851,57 +2958,491 @@ function Participant({user}){
   return (
     <div className="space-y-4">
       <window.Components.ParticipantIntro />
-      {/* Progress */}
-      <div className="rounded-2xl border p-3 bg-white">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-semibold text-sm">Your Progress</h3>
-          <div className="flex items-center gap-2">
+      
+      {/* Dark Mode Toggle for Nighttime Adventures */}
+      <div className={`rounded-2xl border-2 p-3 transition-all ${
+        darkMode 
+          ? 'neon-card-purple border-purple-500' 
+          : 'border-indigo-300 bg-gradient-to-r from-indigo-50 to-purple-50'
+      }`}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">{darkMode ? '🌙' : '☀️'}</span>
+            <div>
+              <h3 className={`font-bold text-sm mb-0.5 ${darkMode ? 'text-cyan-300' : 'text-indigo-900'}`}>
+                {darkMode ? 'Night Mode Active' : 'Daytime Theme'}
+              </h3>
+              <p className={`text-xs ${darkMode ? 'text-purple-300' : 'text-indigo-700'}`}>
+                {darkMode ? 'Neon glow effects for nighttime adventures' : 'Switch to night mode for better visibility'}
+              </p>
+            </div>
+          </div>
+          <button
+            className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+              darkMode 
+                ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-white shadow-lg shadow-purple-500/50 hover:shadow-purple-500/70' 
+                : 'bg-gradient-to-r from-yellow-400 to-orange-500 text-white hover:from-yellow-500 hover:to-orange-600'
+            }`}
+            onClick={() => setDarkMode(!darkMode)}
+          >
+            {darkMode ? '🌙 Night' : '☀️ Day'}
+          </button>
+        </div>
+      </div>
+      
+      {/* Bonus Spins Campaign Banner */}
+      {bonusCampaign && campaignTimeLeft > 0 && remainingBonusSpins > 0 && (
+        <div className={`rounded-2xl border-2 p-4 ${
+          darkMode
+            ? 'neon-card-pink border-pink-500 animate-pulse'
+            : 'border-yellow-400 bg-gradient-to-r from-yellow-50 via-orange-50 to-yellow-50 animate-pulse'
+        }`}>
+          <div className="flex items-center gap-3">
+            <span className="text-4xl">🎰</span>
+            <div className="flex-1">
+              <h3 className={`font-bold text-lg mb-1 ${darkMode ? 'text-pink-300' : 'text-yellow-900'}`}>
+                {remainingBonusSpins} Gnome Bonus Spins Unlocked!!
+              </h3>
+              <div className="flex items-center gap-2 text-sm">
+                <span className={darkMode ? 'text-purple-300' : 'text-yellow-800'}>Time Remaining:</span>
+                <span className={`font-mono font-bold ${darkMode ? 'text-cyan-300' : 'text-orange-700'}`}>
+                  {(() => {
+                    const hours = Math.floor(campaignTimeLeft / (60 * 60 * 1000));
+                    const minutes = Math.floor((campaignTimeLeft % (60 * 60 * 1000)) / (60 * 1000));
+                    const seconds = Math.floor((campaignTimeLeft % (60 * 1000)) / 1000);
+                    return `${hours}h ${minutes}m ${seconds}s`;
+                  })()}
+                </span>
+              </div>
+            </div>
             <button
-              className={`px-3 py-1.5 rounded-full border text-sm ${bonusReady && !spinUsed ? 'bonus-ready' : 'bonus-disabled'}`}
-              onClick={openBonus}
-              disabled={!(bonusReady && !spinUsed)}
-              title={bonusReady && !spinUsed ? 'You have a bonus spin!' : 'Unlock a gnome to earn a bonus spin'}
+              onClick={() => {
+                setBonusOpen(true);
+                setWinMsg("");
+                setReels([0,1,2,3,4]);
+              }}
+              className={`rounded-xl px-6 py-3 font-bold text-lg shadow-lg transform hover:scale-105 transition-transform ${
+                darkMode
+                  ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-pink-500/50 hover:shadow-pink-500/70'
+                  : 'bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white'
+              }`}
             >
-              Gnome Bonus!
+              🎰 PLAY NOW!
             </button>
-            {user && <div className="text-[11px] text-gray-600">Signed in as <span className="font-mono">{user.email}</span></div>}
           </div>
         </div>
-        <div className="text-xs text-gray-600">Progress {found.length}/{window.GV.GNOMES.length} ({progressPct}%)</div>
-        <div className="h-2 w-full rounded bg-gray-200"><div className="h-2 rounded bg-black" style={{width:`${progressPct}%`}}/></div>
+      )}
+      
+      {/* Progress */}
+      <div className={`rounded-2xl border-2 p-4 ${
+        darkMode 
+          ? 'neon-card border-cyan-500'
+          : 'border-indigo-400 bg-gradient-to-br from-indigo-50 to-purple-50'
+      }`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">🎯</span>
+          <div className="flex-1">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <h3 className={`font-semibold text-sm ${darkMode ? 'text-cyan-300' : 'text-indigo-900'}`}>
+                  Your Progress
+                </h3>
+                <window.Components.CycleBadge />
+              </div>
+              {user && (
+                <div className={`text-[11px] ${darkMode ? 'text-purple-300' : 'text-indigo-600'}`}>
+                  Signed in as <span className="font-mono font-semibold">{user.email}</span>
+                </div>
+              )}
+            </div>
+            <p className={`text-xs mt-1 ${darkMode ? 'text-cyan-200' : 'text-indigo-700'}`}>
+              {found.length}/{window.GV.GNOMES.length} gnomes found ({progressPct}% complete)
+            </p>
+          </div>
+        </div>
+        
+        <div className="mb-3">
+          <div className="h-3 w-full rounded-full bg-gray-200 overflow-hidden">
+            <div 
+              className={`h-3 rounded-full transition-all duration-500 ${
+                darkMode 
+                  ? 'bg-gradient-to-r from-cyan-500 to-purple-600'
+                  : 'bg-gradient-to-r from-indigo-600 to-purple-600'
+              }`}
+              style={{width:`${progressPct}%`}}
+            />
+          </div>
+        </div>
+        
+        {/* Color-coded gnome badges */}
+        <div className="grid grid-cols-5 md:grid-cols-10 gap-2">
+          {window.GV.GNOMES.map(g => {
+            const foundItem = found.find(f => f.gnomeId === g.id);
+            const isFound = !!foundItem;
+            const method = foundItem?.method;
+            return (
+              <div key={g.id} className="flex flex-col items-center">
+                <div className={`w-12 h-12 rounded-lg border-2 flex items-center justify-center transition-all ${
+                  method === 'trigger' 
+                    ? darkMode 
+                      ? 'bg-green-900/50 border-green-400' 
+                      : 'bg-green-50 border-green-500'
+                    : method === 'slot' 
+                      ? darkMode 
+                        ? 'bg-blue-900/50 border-blue-400' 
+                        : 'bg-blue-50 border-blue-500'
+                      : darkMode 
+                        ? 'bg-slate-800/50 border-slate-600' 
+                        : 'bg-gray-100 border-gray-300'
+                }`}>
+                  <img 
+                    src={g.image} 
+                    alt={g.name} 
+                    className={`w-10 h-10 object-contain ${
+                      !isFound 
+                        ? 'opacity-30 grayscale' 
+                        : 'float-gnome-sm'
+                    }`} 
+                  />
+                </div>
+                <span className={`text-[9px] mt-1 ${
+                  darkMode ? 'text-purple-400' : 'text-gray-600'
+                }`}>
+                  #{g.id}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        
+        <div className="mt-3 flex items-center gap-4 text-[10px] flex-wrap">
+          <div className="flex items-center gap-1">
+            <div className={`w-3 h-3 rounded ${
+              darkMode ? 'bg-green-400' : 'bg-green-500'
+            }`}></div>
+            <span className={darkMode ? 'text-green-300' : 'text-gray-600'}>Trigger Scan</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <div className={`w-3 h-3 rounded ${
+              darkMode ? 'bg-blue-400' : 'bg-blue-500'
+            }`}></div>
+            <span className={darkMode ? 'text-blue-300' : 'text-gray-600'}>Slot Win</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <div className={`w-3 h-3 rounded ${
+              darkMode ? 'bg-slate-600' : 'bg-gray-300'
+            }`}></div>
+            <span className={darkMode ? 'text-purple-400' : 'text-gray-600'}>Locked</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Game Rewards */}
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* Golden Gnome Reward */}
+        <div className={`rounded-2xl border-2 p-4 ${
+          darkMode 
+            ? 'border-yellow-500 bg-gradient-to-br from-yellow-950/50 to-amber-950/50'
+            : 'border-yellow-400 bg-gradient-to-br from-yellow-50 to-amber-50'
+        }`}>
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-4xl">🏆</span>
+            <div className="flex-1">
+              <h3 className={`font-bold ${darkMode ? 'text-yellow-300' : 'text-yellow-900'}`}>
+                Golden Gnome
+              </h3>
+              <p className={`text-xs ${darkMode ? 'text-yellow-200' : 'text-yellow-700'}`}>
+                Special Event Reward
+              </p>
+            </div>
+            <span className="text-3xl">🔒</span>
+          </div>
+          <div className={`rounded-lg p-3 border ${
+            darkMode 
+              ? 'bg-slate-800/50 border-yellow-500/30'
+              : 'bg-white border-yellow-300'
+          }`}>
+            <div className={`font-bold text-lg ${
+              darkMode ? 'text-yellow-300' : 'text-yellow-900'
+            }`}>
+              $2,000 OFF
+            </div>
+            <div className={`text-sm font-semibold ${
+              darkMode ? 'text-yellow-200' : 'text-gray-700'
+            }`}>
+              at WildFlower FL Dispensary
+            </div>
+            <div className={`text-xs mt-1 ${
+              darkMode ? 'text-yellow-400' : 'text-gray-600'
+            }`}>
+              Location: 240 S 3rd St, Jacksonville Beach, FL 32250
+            </div>
+            <div className={`text-[10px] italic mt-0.5 ${
+              darkMode ? 'text-yellow-500' : 'text-gray-500'
+            }`}>
+              "Former Salt Life Retail Store"
+            </div>
+            <div className={`text-xs mt-2 ${
+              darkMode ? 'text-purple-300' : 'text-gray-600'
+            }`}>
+              Unlocked during special admin events
+            </div>
+          </div>
+        </div>
+
+        {/* Milestone Reward */}
+        {(() => {
+          const foundIds = found.filter(f => f.method === 'trigger').map(f => f.gnomeId).sort((a,b) => a-b);
+          const inOrder = foundIds.length === 10 && foundIds.every((id, idx) => id === idx + 1);
+          const isUnlocked = inOrder;
+          
+          return (
+            <div className={`rounded-2xl border-2 p-4 ${
+              darkMode 
+                ? isUnlocked 
+                  ? 'border-purple-500 bg-gradient-to-br from-purple-950/50 to-pink-950/50'
+                  : 'border-slate-600 bg-gradient-to-br from-slate-900/50 to-slate-800/50'
+                : isUnlocked 
+                  ? 'border-purple-400 bg-gradient-to-br from-purple-50 to-pink-50'
+                  : 'border-gray-400 bg-gradient-to-br from-gray-50 to-slate-50'
+            }`}>
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-4xl">🎯</span>
+                <div className="flex-1">
+                  <h3 className={`font-bold ${
+                    darkMode 
+                      ? isUnlocked ? 'text-purple-300' : 'text-slate-400'
+                      : isUnlocked ? 'text-purple-900' : 'text-gray-700'
+                  }`}>
+                    Milestone Reward
+                  </h3>
+                  <p className={`text-xs ${
+                    darkMode 
+                      ? isUnlocked ? 'text-purple-200' : 'text-slate-500'
+                      : isUnlocked ? 'text-purple-700' : 'text-gray-600'
+                  }`}>
+                    Find all 10 in order (1→10)
+                  </p>
+                </div>
+                <span className="text-3xl">{isUnlocked ? '✅' : '🔒'}</span>
+              </div>
+              <div className={`rounded-lg p-3 border ${
+                darkMode 
+                  ? isUnlocked 
+                    ? 'bg-slate-800/50 border-purple-500/30'
+                    : 'bg-slate-900/50 border-slate-700'
+                  : isUnlocked 
+                    ? 'bg-white border-purple-300'
+                    : 'bg-gray-100 border-gray-300'
+              }`}>
+                <div className={`font-bold text-lg ${
+                  darkMode 
+                    ? isUnlocked ? 'text-purple-300' : 'text-slate-500'
+                    : isUnlocked ? 'text-purple-900' : 'text-gray-600'
+                }`}>
+                  $1,000 OFF
+                </div>
+                <div className={`text-sm font-semibold ${isUnlocked ? 'text-gray-700' : 'text-gray-600'}`}>at WildFlower FL Dispensary</div>
+                <div className={`text-xs ${isUnlocked ? 'text-gray-600' : 'text-gray-500'} mt-1`}>Location: 240 S 3rd St, Jacksonville Beach, FL 32250</div>
+                <div className={`text-[10px] italic ${isUnlocked ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>"Former Salt Life Retail Store"</div>
+                {isUnlocked ? (
+                  <div className="text-xs text-green-700 mt-2 font-semibold">🎉 UNLOCKED! Code: MLS-{window.GV.DEVICE_ID.slice(-6).toUpperCase()}</div>
+                ) : (
+                  <div className="text-xs text-gray-600 mt-2">
+                    Next: Find #{foundIds.length + 1} via trigger scan
+                    <br/>
+                    <span className="text-[10px] text-gray-500">(Slot wins don't count toward order)</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Clues */}
-      <div className="rounded-2xl border p-3 bg-white">
-        <h3 className="font-semibold text-sm mb-2">Current Clues</h3>
-        <div className="grid md:grid-cols-2 gap-2 text-xs">
+      <div className={`rounded-2xl border-2 p-4 ${
+        darkMode 
+          ? 'neon-card-purple border-purple-500'
+          : 'border-green-400 bg-gradient-to-br from-green-50 to-emerald-50'
+      }`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">🗺️</span>
+          <div className="flex-1">
+            <h3 className={`font-semibold text-sm ${
+              darkMode ? 'text-cyan-300' : 'text-green-900'
+            }`}>
+              Current Clues
+            </h3>
+            <p className={`text-xs ${darkMode ? 'text-purple-300' : 'text-green-700'}`}>
+              Solve riddles to find active gnomes at partner locations
+            </p>
+          </div>
+        </div>
+        
+        <div className="grid md:grid-cols-2 gap-3 text-xs">
           {clues.map(({gnome,active,riddle,hint,partner})=>(
-            <div key={gnome.id} className="rounded border p-2">
-              <div className="flex items-center gap-2">
-                <img src={gnome.image} className="w-6 h-6 object-contain float-gnome-sm" alt=""/>
-                <div className="font-semibold">#{gnome.id} {gnome.name}</div>
-                <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full border ${active?'bg-green-50 border-green-500':'bg-gray-50'}`}>{active?'Active':'Unavailable'}</span>
+            <div key={gnome.id} className={`rounded-xl border p-3 ${
+              darkMode 
+                ? 'bg-slate-800/50 border-purple-500/30'
+                : 'bg-white border-green-200'
+            }`}>
+              <div className="flex items-center gap-2 mb-2">
+                <img src={gnome.image} className="w-8 h-8 object-contain float-gnome-sm" alt=""/>
+                <div className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-900'}`}>
+                  #{gnome.id} {gnome.name}
+                </div>
+                <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full border font-semibold ${
+                  active 
+                    ? darkMode 
+                      ? 'bg-green-500/20 border-green-500 text-green-400'
+                      : 'bg-green-50 border-green-500 text-green-700'
+                    : darkMode 
+                      ? 'bg-slate-700 border-slate-600 text-slate-400'
+                      : 'bg-gray-50 border-gray-400 text-gray-600'
+                }`}>
+                  {active?'Active':'Unavailable'}
+                </span>
               </div>
               {active?<>
-                <div className="mt-1 text-gray-700 italic">"{riddle}"</div>
-                <div className="mt-1 text-gray-600">Tip: Use your camera to scan the correct logo/image when you arrive.</div>
-                {hint && <div className="mt-1 text-gray-600">Hint: {hint}</div>}
-                {partner && <div className="mt-1 text-[11px] text-gray-500">Hosted by: <span className="font-mono">{partner.establishment||partner.name}</span></div>}
-              </>:<div className="mt-1 text-gray-500">Waiting for winning Partner to activate.</div>}
+                <div className={`mt-1 italic ${
+                  darkMode ? 'text-purple-200' : 'text-gray-700'
+                }`}>
+                  "{riddle}"
+                </div>
+                <div className={`mt-2 text-[11px] ${
+                  darkMode ? 'text-cyan-300' : 'text-green-600'
+                }`}>
+                  💡 Tip: Use your camera to scan the correct logo/image when you arrive.
+                </div>
+                {hint && (
+                  <div className={`mt-2 p-2 rounded-lg ${
+                    darkMode 
+                      ? 'bg-yellow-900/30 border border-yellow-500/30 text-yellow-300'
+                      : 'bg-yellow-50 border border-yellow-300 text-yellow-900'
+                  }`}>
+                    <span className="font-semibold">🔍 Hint:</span> {hint}
+                  </div>
+                )}
+                {partner && (
+                  <div className={`mt-2 text-[11px] ${
+                    darkMode ? 'text-purple-400' : 'text-gray-500'
+                  }`}>
+                    📍 Hosted by: <span className="font-mono font-semibold">{partner.establishment||partner.name}</span>
+                  </div>
+                )}
+              </>:(
+                <div className={`mt-1 ${
+                  darkMode ? 'text-slate-400' : 'text-gray-500'
+                }`}>
+                  Waiting for winning Partner to activate.
+                </div>
+              )}
             </div>
           ))}
         </div>
       </div>
 
-      {/* Scanner */}
-      <div className="rounded-2xl border p-3 bg-white">
-        <h3 className="font-semibold text-sm mb-2">Scan Hidden Emblem</h3>
-        <div className="flex gap-2">
-          <button className="rounded bg-black text-white px-3 py-1.5 text-sm" onClick={()=>{setScanMode('image'); openScanner();}}>Image Unlock</button>
-          <button className="rounded bg-emerald-600 text-white px-3 py-1.5 text-sm" onClick={()=>{setScanMode('qr'); openScanner();}}>Scan QR for Clue</button>
-          <button className="rounded border px-3 py-1.5 text-sm" onClick={()=>alert('Image Unlock: Point your camera at the correct logo/image at the location. When it matches, your gnome unlocks automatically!\n\nScan QR for Clue: Scan a QR code from a poster to see dynamic clues about which emblem to look for.')}>Help</button>
+      {/* Hunting Mode - Featured Section */}
+      <div className={`rounded-2xl border-2 p-4 ${
+        darkMode 
+          ? 'neon-card border-orange-500 bg-gradient-to-br from-orange-900/20 to-red-900/20' 
+          : 'border-orange-400 bg-gradient-to-br from-orange-50 to-red-50'
+      }`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-4xl">🎯</span>
+          <div className="flex-1">
+            <h3 className={`font-bold text-lg mb-1 ${
+              darkMode ? 'text-orange-300' : 'text-orange-900'
+            }`}>
+              AR Hunting Mode
+            </h3>
+            <p className={`text-xs ${darkMode ? 'text-orange-200' : 'text-orange-700'}`}>
+              Pokemon GO style hunting! Scan trigger images to spawn running gnomes, then aim and shoot to capture them. Practice your aim anytime!
+            </p>
+          </div>
         </div>
-        {message && <p className="mt-2 text-xs text-gray-700">{message}</p>}
+        <button 
+          className={`w-full rounded-xl px-8 py-4 text-lg font-black transform hover:scale-105 transition-all ${
+            darkMode 
+              ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-2xl shadow-orange-500/50 hover:shadow-orange-500/70 animate-pulse'
+              : 'bg-gradient-to-r from-orange-600 to-red-700 text-white shadow-xl shadow-orange-500/30 hover:shadow-orange-500/50'
+          }`}
+          style={{textShadow: '2px 2px 4px rgba(0,0,0,0.5)'}}
+          onClick={startHuntingMode}
+        >
+          🎯 START GNOME HUNTING! 🏹
+        </button>
+      </div>
+
+      {/* Scanner */}
+      <div className={`rounded-2xl border-2 p-4 ${
+        darkMode 
+          ? 'neon-card border-cyan-500'
+          : 'border-blue-400 bg-gradient-to-br from-blue-50 to-cyan-50'
+      }`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">📸</span>
+          <div className="flex-1">
+            <h3 className={`font-semibold text-sm ${
+              darkMode ? 'text-cyan-300' : 'text-blue-900'
+            }`}>
+              Scan Hidden Emblem
+            </h3>
+            <p className={`text-xs ${darkMode ? 'text-cyan-200' : 'text-blue-700'}`}>
+              {/* Fun motivational messages based on progress */}
+              {(() => {
+                const total = found.length;
+                if (total === 0) return "Ready to start your adventure? Point your camera and unlock!";
+                if (total === 1) return "Great start! The hunt is on - 9 more to go! 🎯";
+                if (total < 5) return `You're on fire! ${10 - total} gnomes left to find! 🔥`;
+                if (total < 8) return `Amazing progress! Only ${10 - total} remaining! ⭐`;
+                if (total < 10) return `So close! Just ${10 - total} more for the grand prize! 👑`;
+                return "You're a legend! All gnomes found! 🏆";
+              })()}
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex gap-3 flex-wrap">
+          <button 
+            className={`rounded-xl px-6 py-2.5 text-sm font-bold transform hover:scale-105 transition-transform ${
+              darkMode 
+                ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-white shadow-lg shadow-cyan-500/50 animate-pulse'
+                : 'bg-black text-white hover:bg-gray-800'
+            }`}
+            onClick={()=>{setScanMode('image'); openScanner();}}
+          >
+            🔓 Image Unlock
+          </button>
+          <button 
+            className={`rounded-xl px-6 py-2.5 text-sm font-bold transform hover:scale-105 transition-transform ${
+              darkMode 
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/50'
+                : 'bg-emerald-600 text-white hover:bg-emerald-700'
+            }`}
+            onClick={()=>{setScanMode('qr'); openScanner();}}
+          >
+            📱 Scan QR for Clue
+          </button>
+          <button 
+            className={`rounded-xl px-4 py-2.5 text-sm font-semibold ${
+              darkMode 
+                ? 'border border-purple-500 text-purple-300 hover:bg-purple-900/30'
+                : 'border border-blue-300 text-blue-700 hover:bg-blue-50'
+            }`}
+            onClick={()=>alert('Image Unlock: Point your camera at the correct logo/image at the location. When it matches, your gnome unlocks automatically!\n\nScan QR for Clue: Scan a QR code from a poster to see dynamic clues about which emblem to look for.\n\nHunting Mode: Pokemon GO style AR hunting - scan triggers to spawn gnomes, then aim and shoot!')}
+          >
+            ❓ Help
+          </button>
+        </div>
+        {message && (
+          <p className={`mt-3 text-xs font-semibold animate-bounce ${
+            darkMode ? 'text-green-400' : 'text-green-700'
+          }`}>
+            {message}
+          </p>
+        )}
       </div>
 
       {/* Scanner modal */}
@@ -1911,14 +3452,16 @@ function Participant({user}){
             <video ref={videoRef} style={{width:'100%',height:'auto'}} autoPlay muted playsInline></video>
             <canvas ref={canvasRef} style={{display:'none'}}></canvas>
             <div className="scan-overlay"></div>
-            <div className="absolute top-2 right-2"><button className="rounded bg-white/90 px-2 py-1 text-sm" onClick={closeScanner}>Close</button></div>
+            <div className="absolute top-2 right-2"><button className={`rounded px-2 py-1 text-sm font-semibold ${
+              darkMode ? 'bg-white/90 text-gray-900' : 'bg-white/90 text-gray-900'
+            }`} onClick={closeScanner}>Close</button></div>
             {scanMode==='image' ? (
               <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-white text-xs bg-black/40 rounded px-2 py-1">Scan the correct emblem/logo to unlock.</div>
             ) : (
               <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-[90%] bg-white/95 rounded-lg p-3">
-                <div className="text-xs font-semibold mb-1">QR Clue Scanner</div>
-                <input type="text" placeholder="Paste GNOME:# code here" id="qrInput" className="w-full border rounded px-2 py-1 text-xs mb-2"/>
-                <button className="w-full rounded bg-emerald-600 text-white px-3 py-1.5 text-xs" onClick={()=>{
+                <div className="text-xs font-semibold mb-1 text-gray-900">QR Clue Scanner</div>
+                <input type="text" placeholder="Paste GNOME:# code here" id="qrInput" className="w-full border rounded px-2 py-1 text-xs mb-2 text-gray-900"/>
+                <button className="w-full rounded bg-emerald-600 text-white px-3 py-1.5 text-xs font-semibold" onClick={()=>{
                   const val=document.getElementById('qrInput').value;
                   showQrClueFromData(val);
                   closeScanner();
@@ -1929,83 +3472,531 @@ function Participant({user}){
         </div>
       )}
 
+      {/* Hunting Mode modal */}
+      {huntingMode && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="fixed inset-0 bg-black overflow-hidden">
+            {/* Camera feed - Space view through cockpit */}
+            <video ref={huntingVideoRef} className="absolute inset-0 w-full h-full object-cover opacity-50" autoPlay muted playsInline></video>
+            <canvas ref={huntingCanvasRef} style={{display:'none'}}></canvas>
+            
+            {/* Space atmosphere overlay */}
+            <div className="absolute inset-0 pointer-events-none z-1" style={{
+              background: 'radial-gradient(circle at center, transparent 20%, rgba(0, 10, 30, 0.6) 70%, rgba(0, 5, 20, 0.9) 100%)'
+            }}></div>
+            
+            {/* COCKPIT FRAME OVERLAY */}
+            <div className="absolute inset-0 pointer-events-none z-50">
+              {/* Top cockpit frame */}
+              <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-b from-gray-900 via-gray-800 to-transparent opacity-95"
+                   style={{
+                     clipPath: 'polygon(0 0, 100% 0, 95% 100%, 5% 100%)',
+                     boxShadow: 'inset 0 -10px 30px rgba(0, 0, 0, 0.8)'
+                   }}>
+                {/* Metal texture lines */}
+                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-gray-600 to-transparent"></div>
+                <div className="absolute inset-x-0 top-2 h-px bg-gradient-to-r from-transparent via-gray-500 to-transparent"></div>
+              </div>
+              
+              {/* Left cockpit frame */}
+              <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-gray-900 via-gray-800 to-transparent opacity-95"
+                   style={{
+                     clipPath: 'polygon(0 0, 100% 10%, 100% 90%, 0 100%)',
+                     boxShadow: 'inset -10px 0 30px rgba(0, 0, 0, 0.8)'
+                   }}>
+                <div className="absolute left-0 inset-y-0 w-1 bg-gradient-to-b from-transparent via-gray-600 to-transparent"></div>
+              </div>
+              
+              {/* Right cockpit frame */}
+              <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-gray-900 via-gray-800 to-transparent opacity-95"
+                   style={{
+                     clipPath: 'polygon(0 10%, 100% 0, 100% 100%, 0 90%)',
+                     boxShadow: 'inset 10px 0 30px rgba(0, 0, 0, 0.8)'
+                   }}>
+                <div className="absolute right-0 inset-y-0 w-1 bg-gradient-to-b from-transparent via-gray-600 to-transparent"></div>
+              </div>
+              
+              {/* Cockpit window frame reflections */}
+              <div className="absolute top-16 left-20 w-32 h-1 bg-gradient-to-r from-transparent via-white/20 to-transparent blur-sm"></div>
+              <div className="absolute top-24 right-24 w-40 h-1 bg-gradient-to-l from-transparent via-white/15 to-transparent blur-sm"></div>
+            </div>
+            
+            {/* HUD Corner Brackets */}
+            <div className="absolute top-20 left-20 w-20 h-20 border-t-2 border-l-2 border-cyan-400 pointer-events-none z-40 animate-pulse" style={{boxShadow: '0 0 15px rgba(6, 182, 212, 0.6)'}}></div>
+            <div className="absolute top-20 right-20 w-20 h-20 border-t-2 border-r-2 border-cyan-400 pointer-events-none z-40 animate-pulse" style={{boxShadow: '0 0 15px rgba(6, 182, 212, 0.6)'}}></div>
+            <div className="absolute bottom-32 left-20 w-20 h-20 border-b-2 border-l-2 border-cyan-400 pointer-events-none z-40 animate-pulse" style={{boxShadow: '0 0 15px rgba(6, 182, 212, 0.6)'}}></div>
+            <div className="absolute bottom-32 right-20 w-20 h-20 border-b-2 border-r-2 border-cyan-400 pointer-events-none z-40 animate-pulse" style={{boxShadow: '0 0 15px rgba(6, 182, 212, 0.6)'}}></div>
+            
+            {/* HUD Top Bar - Jet Status Display */}
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-6 px-6 py-2 z-45 pointer-events-none"
+                 style={{
+                   background: 'linear-gradient(to bottom, rgba(0, 20, 40, 0.8), rgba(0, 10, 20, 0.6))',
+                   border: '1px solid rgba(6, 182, 212, 0.3)',
+                   borderRadius: '4px',
+                   boxShadow: '0 0 20px rgba(6, 182, 212, 0.3), inset 0 0 10px rgba(0, 0, 0, 0.5)'
+                 }}>
+              <div className="text-cyan-300 text-xs font-bold tracking-wider" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
+                SPACE JET ALPHA-7
+              </div>
+              <div className="text-green-400 text-xs font-mono" style={{textShadow: '0 0 10px rgba(74, 222, 128, 0.8)'}}>
+                ● SYSTEMS ONLINE
+              </div>
+            </div>
+            
+            {/* Top right - Exit button (styled as emergency eject) */}
+            <button 
+              className="absolute top-4 right-4 bg-red-700/80 hover:bg-red-600 text-white px-4 py-2 rounded text-xs font-bold border border-red-400 z-45 backdrop-blur-sm"
+              style={{
+                textShadow: '0 0 10px rgba(239, 68, 68, 0.8)',
+                boxShadow: '0 0 20px rgba(239, 68, 68, 0.6), inset 0 0 10px rgba(0, 0, 0, 0.3)'
+              }}
+              onClick={stopHuntingMode}
+            >
+              ⚠ EJECT
+            </button>
+            
+            {/* Targeting Reticle - Advanced fighter jet style */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-35">
+              <div className="relative w-24 h-24">
+                {/* Outer rotating ring */}
+                <div className="absolute inset-0 rounded-full border-2 border-red-500/30 animate-spin" style={{animationDuration: '4s', boxShadow: '0 0 15px rgba(239, 68, 68, 0.4)'}}></div>
+                
+                {/* Pulsing scan ring */}
+                <div className="absolute inset-0 rounded-full border-2 border-red-400/50 animate-ping" style={{animationDuration: '2s'}}></div>
+                
+                {/* Main targeting circle */}
+                <div className="absolute inset-3 rounded-full border-2 border-red-500" style={{boxShadow: '0 0 20px rgba(239, 68, 68, 0.8), inset 0 0 15px rgba(239, 68, 68, 0.3)'}}></div>
+                
+                {/* Crosshair lines */}
+                <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500" style={{boxShadow: '0 0 10px rgba(239, 68, 68, 1)'}}></div>
+                <div className="absolute left-1/2 top-0 w-0.5 h-full bg-red-500" style={{boxShadow: '0 0 10px rgba(239, 68, 68, 1)'}}></div>
+                
+                {/* Corner brackets */}
+                <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-red-400"></div>
+                <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-red-400"></div>
+                <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-red-400"></div>
+                <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-red-400"></div>
+                
+                {/* Center targeting dot */}
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-red-500 border border-white" style={{boxShadow: '0 0 15px rgba(239, 68, 68, 1)'}}></div>
+                
+                {/* Range indicator text */}
+                <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-red-400 text-xs font-mono whitespace-nowrap" style={{textShadow: '0 0 10px rgba(239, 68, 68, 0.8)'}}>
+                  RNG: 20FT
+                </div>
+              </div>
+            </div>
+            
+            {/* Running gnome - Enhanced with neon glow */}
+            {gnomeSpotted && gnomeRunning && (
+              <img 
+                src={gnomeSpotted.image}
+                alt="Gnome"
+                className="absolute w-24 h-24 object-contain animate-bounce pointer-events-none z-5"
+                style={{
+                  left: `${gnomePositionRef.current.x}%`,
+                  top: `${gnomePositionRef.current.y}%`,
+                  transform: 'translate(-50%, -50%)',
+                  filter: 'drop-shadow(0 0 20px rgba(255, 255, 0, 1)) drop-shadow(0 0 40px rgba(255, 255, 0, 0.6)) brightness(1.2) contrast(1.1)'
+                }}
+              />
+            )}
+            
+            {/* Gnome target indicator ring */}
+            {gnomeSpotted && gnomeRunning && (
+              <div 
+                className="absolute w-32 h-32 rounded-full border-4 border-yellow-400 pointer-events-none z-4 animate-pulse"
+                style={{
+                  left: `${gnomePositionRef.current.x}%`,
+                  top: `${gnomePositionRef.current.y}%`,
+                  transform: 'translate(-50%, -50%)',
+                  boxShadow: '0 0 30px rgba(250, 204, 21, 0.8), inset 0 0 20px rgba(250, 204, 21, 0.3)'
+                }}
+              ></div>
+            )}
+            
+            {/* COCKPIT DASHBOARD - Bottom controls */}
+            <div className="absolute bottom-0 left-0 right-0 z-45 pointer-events-none">
+              {/* Dashboard panel background */}
+              <div className="relative h-48 bg-gradient-to-t from-gray-900 via-gray-800 to-transparent opacity-95"
+                   style={{
+                     clipPath: 'polygon(5% 0, 95% 0, 100% 100%, 0 100%)',
+                     boxShadow: 'inset 0 20px 40px rgba(0, 0, 0, 0.9)'
+                   }}>
+                
+                {/* Metal panel details */}
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-gray-600 to-transparent"></div>
+                <div className="absolute inset-x-0 top-2 h-px bg-gradient-to-r from-transparent via-gray-500 to-transparent"></div>
+                
+                {/* Panel screws */}
+                <div className="absolute top-4 left-10 w-2 h-2 rounded-full bg-gray-700 border border-gray-600" style={{boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.8)'}}></div>
+                <div className="absolute top-4 right-10 w-2 h-2 rounded-full bg-gray-700 border border-gray-600" style={{boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.8)'}}></div>
+                
+                {/* Left control panel - Weapon selector */}
+                <div className="absolute left-8 top-6 pointer-events-auto">
+                  <div className="text-cyan-300 text-xs font-bold mb-2 tracking-wider" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
+                    WEAPON SYSTEM
+                  </div>
+                  <select 
+                    value={selectedWeapon}
+                    onChange={(e)=>setSelectedWeapon(e.target.value)}
+                    className="bg-gray-900/90 text-cyan-300 border border-cyan-500/50 rounded px-3 py-2 text-sm font-mono shadow-lg backdrop-blur-sm"
+                    disabled={gnomeRunning}
+                    style={{
+                      textShadow: '0 0 8px rgba(6, 182, 212, 0.6)',
+                      boxShadow: '0 0 15px rgba(6, 182, 212, 0.4), inset 0 0 10px rgba(0, 0, 0, 0.8)'
+                    }}
+                  >
+                    <option value="net">NET LAUNCHER</option>
+                    <option value="crossbow">PLASMA BOLT</option>
+                    <option value="shortbow">LASER ARROW</option>
+                    <option value="dart">NANO DART</option>
+                  </select>
+                </div>
+                
+                {/* Status messages - Top of dashboard */}
+                <div className="absolute top-8 left-1/2 -translate-x-1/2 text-center min-w-[300px]">
+                  {!gnomeSpotted && !shotFired && (
+                    <div className="text-cyan-300 text-sm font-mono mb-2 animate-pulse" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
+                      SCANNING FOR TARGETS...<br/>
+                      <span className="text-xs text-cyan-400/80">PRACTICE MODE ENABLED</span>
+                    </div>
+                  )}
+                  
+                  {!gnomeSpotted && shotFired && (
+                    <div className="text-orange-400 text-sm font-mono font-bold mb-2 animate-bounce" style={{textShadow: '0 0 15px rgba(249, 115, 22, 1)'}}>
+                      {selectedWeapon === 'net' ? '⚡ NET DEPLOYED' : selectedWeapon === 'dart' ? '⚡ DART LAUNCHED' : selectedWeapon === 'crossbow' ? '⚡ BOLT FIRED' : '⚡ ARROW RELEASED'}
+                    </div>
+                  )}
+                  
+                  {gnomeSpotted && gnomeRunning && !shotFired && (
+                    <div className="text-yellow-300 text-base font-mono font-bold mb-2 animate-pulse" style={{textShadow: '0 0 15px rgba(250, 204, 21, 1)'}}>
+                      ⚠ TARGET LOCKED ⚠
+                    </div>
+                  )}
+                  
+                  {captureSuccess === true && (
+                    <div className="text-green-400 text-base font-mono font-bold mb-2 animate-bounce" style={{textShadow: '0 0 15px rgba(74, 222, 128, 1)'}}>
+                      ✓ DIRECT HIT - TARGET NEUTRALIZED
+                    </div>
+                  )}
+                  
+                  {captureSuccess === false && (
+                    <div className="text-red-400 text-base font-mono font-bold mb-2 animate-shake" style={{textShadow: '0 0 15px rgba(248, 113, 113, 1)'}}>
+                      ✗ MISS - TARGET ESCAPED
+                    </div>
+                  )}
+                </div>
+                
+                {/* Center - BIG RED FIRE BUTTON */}
+                <div className="absolute bottom-8 left-1/2 -translate-x-1/2 pointer-events-auto">
+                  <button 
+                    className={`relative rounded-full transition-all ${
+                      !shotFired
+                        ? 'w-32 h-32 hover:w-36 hover:h-36 active:w-30 active:h-30 ' + (gnomeRunning ? 'animate-pulse' : '')
+                        : 'w-32 h-32 cursor-not-allowed'
+                    }`}
+                    style={{
+                      background: !shotFired 
+                        ? 'radial-gradient(circle at 30% 30%, #ff4444, #cc0000, #990000)'
+                        : 'radial-gradient(circle at 30% 30%, #666, #444, #222)',
+                      boxShadow: !shotFired 
+                        ? '0 0 40px rgba(255, 68, 68, 0.8), 0 8px 16px rgba(0, 0, 0, 0.8), inset 0 -8px 16px rgba(0, 0, 0, 0.5), inset 0 2px 8px rgba(255, 100, 100, 0.5)'
+                        : '0 0 10px rgba(100, 100, 100, 0.3), inset 0 4px 8px rgba(0, 0, 0, 0.8)',
+                      border: !shotFired ? '4px solid #ff6666' : '4px solid #555'
+                    }}
+                    onClick={fireWeapon}
+                    disabled={shotFired}
+                  >
+                    {/* Button highlight */}
+                    <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-8 rounded-full opacity-40"
+                         style={{background: 'radial-gradient(ellipse, white, transparent)'}}></div>
+                    
+                    {/* Button text */}
+                    <div className="relative z-10 text-white font-black text-xl tracking-wider"
+                         style={{textShadow: '0 2px 8px rgba(0, 0, 0, 0.8), 0 0 20px rgba(255, 255, 255, 0.5)'}}>
+                      FIRE
+                    </div>
+                    
+                    {/* Status indicator */}
+                    {!shotFired && (
+                      <div className="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-green-500 border-2 border-white animate-pulse"
+                           style={{boxShadow: '0 0 15px rgba(74, 222, 128, 1)'}}></div>
+                    )}
+                  </button>
+                  
+                  {/* Button label */}
+                  <div className="text-center mt-2 text-red-400 text-xs font-mono tracking-wider" style={{textShadow: '0 0 10px rgba(239, 68, 68, 0.8)'}}>
+                    {gnomeRunning ? 'WEAPONS ARMED' : 'TRAINING MODE'}
+                  </div>
+                </div>
+                
+                {/* Right info panel */}
+                <div className="absolute right-8 top-6 text-right">
+                  <div className="text-cyan-300 text-xs font-mono mb-1" style={{textShadow: '0 0 8px rgba(6, 182, 212, 0.6)'}}>
+                    AMMO: ∞
+                  </div>
+                  <div className="text-green-400 text-xs font-mono mb-1" style={{textShadow: '0 0 8px rgba(74, 222, 128, 0.6)'}}>
+                    PWR: 100%
+                  </div>
+                  <div className="text-yellow-400 text-xs font-mono" style={{textShadow: '0 0 8px rgba(250, 204, 21, 0.6)'}}>
+                    SHIELD: MAX
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Weapon fire flash effect */}
+            {shotFired && (
+              <div className="absolute inset-0 bg-white/30 pointer-events-none z-30 animate-ping" style={{animationDuration: '0.3s', animationIterationCount: '1'}}></div>
+            )}
+            
+            {/* Projectile animation with vapor trail */}
+            {shotFired && (
+              <>
+                {/* Vapor trail effect */}
+                <div className="absolute bottom-[5%] left-1/2 -translate-x-1/2 pointer-events-none z-24"
+                     style={{
+                       width: '4px',
+                       height: '50vh',
+                       background: `linear-gradient(to top, 
+                         ${selectedWeapon === 'net' ? 'rgba(34, 211, 238, 0.4)' : 
+                           selectedWeapon === 'crossbow' ? 'rgba(249, 115, 22, 0.4)' : 
+                           selectedWeapon === 'shortbow' ? 'rgba(234, 179, 8, 0.4)' : 
+                           'rgba(168, 85, 247, 0.4)'} 0%, 
+                         transparent 100%)`,
+                       filter: 'blur(8px)',
+                       opacity: 0.6,
+                       animation: 'fade-out 0.8s ease-out forwards'
+                     }}
+                ></div>
+                
+                {/* Main projectile */}
+                <div className={`projectile ${
+                  selectedWeapon === 'net' ? 'net' : 
+                  selectedWeapon === 'crossbow' ? 'crossbow-bolt' : 
+                  selectedWeapon === 'shortbow' ? 'arrow' : 
+                  'dart'
+                }`}>
+                  {selectedWeapon === 'net' && '🥅'}
+                  {selectedWeapon === 'crossbow' && '🏹'}
+                  {selectedWeapon === 'shortbow' && '🎯'}
+                  {selectedWeapon === 'dart' && '🎲'}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Celebration card */}
       {celebrate && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={()=>setCelebrate(null)}>
-          <div className="w-[90vw] max-w-sm rounded-2xl bg-white border p-4 text-center" onClick={e=>e.stopPropagation()}>
-            <div className="text-sm font-semibold">Gnome Unlocked!</div>
-            <div className="mt-2 flex items-center justify-center">
-              <img src={celebrate.image} alt="" className="w-24 h-24 object-contain float-gnome"/>
+          <div className={`w-[90vw] max-w-md rounded-3xl border-4 p-6 text-center transform transition-all scale-100 ${
+            darkMode 
+              ? 'neon-card-purple border-yellow-500 shadow-2xl shadow-yellow-500/50'
+              : 'bg-gradient-to-br from-yellow-100 via-orange-100 to-pink-100 border-yellow-400 shadow-2xl'
+          }`} onClick={e=>e.stopPropagation()}>
+            {/* Floating emoji decorations */}
+            <div className="absolute -top-4 -left-4 text-4xl animate-bounce">🎉</div>
+            <div className="absolute -top-4 -right-4 text-4xl animate-bounce delay-100">✨</div>
+            <div className="absolute -bottom-4 -left-4 text-4xl animate-bounce delay-200">⭐</div>
+            <div className="absolute -bottom-4 -right-4 text-4xl animate-bounce delay-300">🎊</div>
+            
+            <div className={`text-3xl font-black mb-2 ${
+              darkMode ? 'text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-pink-300' : 'text-yellow-900'
+            }`}>
+              🏆 GNOME UNLOCKED! 🏆
             </div>
-            <div className="mt-1 text-xs text-gray-600">#{celebrate.gnomeId} {celebrate.name}</div>
-            <div className="mt-3">
-              <button className="rounded bg-black text-white px-3 py-1.5 text-sm" onClick={()=>setCelebrate(null)}>Nice!</button>
+            
+            <div className={`text-sm mb-4 ${darkMode ? 'text-purple-300' : 'text-orange-700'}`}>
+              You found a legendary gnome!
+            </div>
+            
+            <div className="relative">
+              <div className="mt-2 flex items-center justify-center">
+                <div className={`w-32 h-32 rounded-full flex items-center justify-center ${
+                  darkMode 
+                    ? 'bg-gradient-to-br from-purple-900 to-pink-900 shadow-lg shadow-purple-500/50'
+                    : 'bg-gradient-to-br from-yellow-200 to-orange-200 shadow-lg'
+                }`}>
+                  <img src={celebrate.image} alt="" className="w-28 h-28 object-contain float-gnome animate-pulse"/>
+                </div>
+              </div>
+              
+              <div className={`mt-4 px-4 py-2 rounded-xl inline-block ${
+                darkMode 
+                  ? 'bg-slate-800/50 border-2 border-cyan-500'
+                  : 'bg-white border-2 border-yellow-400'
+              }`}>
+                <div className={`text-lg font-black ${darkMode ? 'text-cyan-300' : 'text-gray-900'}`}>
+                  #{celebrate.gnomeId} {celebrate.name} Gnome
+                </div>
+              </div>
+            </div>
+            
+            <div className={`mt-4 text-xs ${darkMode ? 'text-purple-300' : 'text-gray-600'}`}>
+              +10 XP • Achievement Progress Updated
+            </div>
+            
+            <div className="mt-6 flex gap-3 justify-center">
+              <button 
+                className={`rounded-xl px-8 py-3 font-bold text-lg transform hover:scale-105 transition-all ${
+                  darkMode 
+                    ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-white shadow-lg shadow-cyan-500/50'
+                    : 'bg-gradient-to-r from-yellow-400 to-orange-500 text-white shadow-lg'
+                }`}
+                onClick={()=>setCelebrate(null)}
+              >
+                🎉 Awesome!
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Gnome Bonus Slot Machine */}
-      {bonusOpen && (
+      {/* Bonus Push Notification */}
+      {bonusPushNotification && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="w-[92vw] max-w-2xl slot-frame">
-            <div className="flex items-start gap-2 text-white">
-              <div className="text-lg font-semibold">Gnome Bonus!</div>
-              <button className="ml-auto rounded bg-white/10 px-2 py-1 text-xs border border-white/20" onClick={closeBonus} disabled={spinning}>Close</button>
+          <div className="w-[90vw] max-w-md rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 border-4 border-yellow-400 p-6 text-center shadow-2xl" onClick={e=>e.stopPropagation()}>
+            <div className="text-4xl mb-4">🎉🎰🎉</div>
+            <div className="text-2xl font-black text-white mb-2">
+              You've Earned {bonusPushNotification.count} Gnome Bonus Spin{bonusPushNotification.count > 1 ? 's' : ''}!
             </div>
-
-            <div className="slot-viewport mt-3">
-              <div className="grid grid-cols-5 gap-2 justify-items-center">
-                {reels.map((idx, i)=>(
-                  <div key={i} className="slot-reel">
-                    <img src={window.GV.GNOMES[idx]?.image} alt={window.GV.GNOMES[idx]?.name||''}/>
-                  </div>
-                ))}
-              </div>
+            <div className="text-sm text-emerald-100 mb-6">
+              The admin has gifted you free spins on the slot machine. Try your luck now!
             </div>
-
-            <div className="mt-3 flex items-center justify-center gap-2">
-              <button
-                className={`rounded ${spinning || spinUsed ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-white text-black hover:bg-gray-100'} px-3 py-1.5 text-sm`}
-                onClick={startSpin}
-                disabled={spinning || spinUsed}
+            <div className="flex gap-3 justify-center">
+              <button 
+                className="rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black font-bold px-6 py-3 text-lg shadow-lg transform hover:scale-105 transition"
+                onClick={() => {
+                  window.location.href = 'https://bonus.gnomeville.app';
+                }}
               >
-                {spinUsed ? 'Spin Used' : (spinning ? 'Spinning…' : 'Spin')}
+                🎰 Play Now!
               </button>
-            </div>
-
-            {winMsg && <div className="text-white text-center mt-2 font-semibold">{winMsg}</div>}
-
-            <div className="text-[11px] text-center text-gray-400 mt-2">
-              Get one free spin each time you unlock a gnome. Match all five gnomes across the middle to unlock a bonus gnome!
+              <button 
+                className="rounded-lg bg-white/20 hover:bg-white/30 text-white px-4 py-3 text-sm"
+                onClick={() => setBonusPushNotification(null)}
+              >
+                Later
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {/* Wallet */}
-      <div className="rounded-2xl border p-3 bg-white">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-semibold text-sm">Rewards Wallet</h3>
-          <span className="text-[11px] text-gray-500">Codes are device-bound and one-time</span>
-        </div>
-        <div className="grid md:grid-cols-3 gap-2">
-          {unlocked.length===0 && <div className="text-xs text-gray-500">No coupons unlocked yet…</div>}
-          {unlocked.map((u,i)=>(
-            <div key={i} className="rounded-lg border p-2">
-              <div className="text-[11px] text-gray-500">Coupon</div>
-              <div className="font-semibold text-sm">{u.title}</div>
-              <div className="text-xs text-gray-600">{u.desc}</div>
-              <div className="mt-1 text-[11px]">Code</div>
-              <div className="font-mono text-sm break-all">{u.code}</div>
-              <div className="mt-2 flex items-center gap-2">
-                <button className="rounded bg-black text-white px-2 py-1 text-xs" onClick={()=>redeem(u.code)}>Redeem</button>
-                {window.__walletSubs[window.GV.DEVICE_ID]?.has(u.couponId)
-                  ? <button className="rounded border px-2 py-1 text-xs" onClick={()=>removeFromWallet(u.couponId)}>Remove from Wallet</button>
-                  : <button className="rounded border px-2 py-1 text-xs" onClick={()=>addToWallet(u.couponId)}>Add to Wallet</button>}
-              </div>
+      <div className={`rounded-2xl border-2 p-4 ${
+        darkMode 
+          ? 'neon-card-pink border-pink-500'
+          : 'border-purple-400 bg-gradient-to-br from-purple-50 to-pink-50'
+      }`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">💰</span>
+          <div className="flex-1">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className={`font-semibold text-sm ${
+                darkMode ? 'text-pink-300' : 'text-purple-900'
+              }`}>
+                Rewards Wallet
+              </h3>
+              <span className={`text-[11px] ${
+                darkMode ? 'text-purple-400' : 'text-purple-600'
+              }`}>
+                Codes are device-bound and one-time
+              </span>
             </div>
-          ))}
+            <p className={`text-xs mt-1 ${
+              darkMode ? 'text-purple-300' : 'text-purple-700'
+            }`}>
+              Your earned coupons and rewards
+            </p>
+          </div>
+        </div>
+        
+        <div className="grid md:grid-cols-3 gap-3">
+          {unlocked.length===0 ? (
+            <div className={`col-span-3 text-center py-8 ${
+              darkMode ? 'text-purple-400' : 'text-gray-500'
+            }`}>
+              <span className="text-4xl mb-2 block">🎁</span>
+              <p className="text-sm font-semibold">No coupons unlocked yet</p>
+              <p className="text-xs mt-1">Find gnomes to unlock exclusive rewards!</p>
+            </div>
+          ) : (
+            unlocked.map((u,i)=>(
+              <div key={i} className={`rounded-xl border p-3 ${
+                darkMode 
+                  ? 'bg-slate-800/50 border-purple-500/30'
+                  : 'bg-white border-purple-200'
+              }`}>
+                <div className={`text-[11px] mb-1 ${
+                  darkMode ? 'text-purple-400' : 'text-gray-500'
+                }`}>
+                  Coupon
+                </div>
+                <div className={`font-semibold text-sm mb-1 ${
+                  darkMode ? 'text-pink-300' : 'text-gray-900'
+                }`}>
+                  {u.title}
+                </div>
+                <div className={`text-xs mb-2 ${
+                  darkMode ? 'text-purple-300' : 'text-gray-600'
+                }`}>
+                  {u.desc}
+                </div>
+                <div className={`text-[11px] mb-1 ${
+                  darkMode ? 'text-cyan-400' : 'text-gray-700'
+                }`}>
+                  Code
+                </div>
+                <div className={`font-mono text-sm break-all mb-3 px-2 py-1 rounded ${
+                  darkMode 
+                    ? 'bg-slate-900/50 text-cyan-300'
+                    : 'bg-gray-100 text-gray-900'
+                }`}>
+                  {u.code}
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button 
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                      darkMode 
+                        ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white'
+                        : 'bg-black text-white hover:bg-gray-800'
+                    }`}
+                    onClick={()=>redeem(u.code)}
+                  >
+                    ✓ Redeem
+                  </button>
+                  {window.__walletSubs[window.GV.DEVICE_ID]?.has(u.couponId)
+                    ? (
+                      <button 
+                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                          darkMode 
+                            ? 'border border-purple-500 text-purple-300'
+                            : 'border border-purple-300 text-purple-700'
+                        }`}
+                        onClick={()=>removeFromWallet(u.couponId)}
+                      >
+                        Remove from Wallet
+                      </button>
+                    ) : (
+                      <button 
+                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                          darkMode 
+                            ? 'border border-cyan-500 text-cyan-300'
+                            : 'border border-blue-300 text-blue-700'
+                        }`}
+                        onClick={()=>addToWallet(u.couponId)}
+                      >
+                        Add to Wallet
+                      </button>
+                    )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -2021,33 +4012,168 @@ function Participant({user}){
       )}
 
       {/* Map */}
-      <div className="rounded-2xl border p-3 bg-white">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-semibold text-sm">Live Map & Nearby Gnomes</h3>
-          <div className="flex items-center gap-2 text-xs">
-            <label className="flex items-center gap-1"><span>Gender</span>
-              <select className="border rounded px-2 py-1" value={gender} onChange={e=>setGender(e.target.value)}>
-                <option value="male">Male</option><option value="female">Female</option><option value="other">Other</option>
-              </select>
-            </label>
-            {!mapOn
-              ? <button className="rounded bg-black text-white px-3 py-1.5" onClick={enableMap}>Enable Location</button>
-              : <button className="rounded border px-3 py-1.5" onClick={disableMap}>Disable</button>}
+      <div className={`rounded-2xl border-2 p-4 ${
+        darkMode 
+          ? 'neon-card-pink border-pink-500'
+          : 'border-orange-400 bg-gradient-to-br from-orange-50 to-red-50'
+      }`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">🗺️</span>
+          <div className="flex-1">
+            <h3 className={`font-semibold text-sm ${
+              darkMode ? 'text-pink-300' : 'text-orange-900'
+            }`}>
+              Live Map & Nearby Gnomes
+            </h3>
+            <p className={`text-xs ${darkMode ? 'text-purple-300' : 'text-orange-700'}`}>
+              Active gnomes appear at Partner addresses. Your dot is shared so players can meet up.
+            </p>
           </div>
         </div>
-        <p className="text-[11px] text-gray-600 mb-2">Active gnomes appear at Partner addresses. Your dot is shared so players can meet up.</p>
-        {mapOn ? <div id="map"></div> : <div className="text-xs text-gray-500">Location is off.</div>}
+        
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          <label className="flex items-center gap-2">
+            <span className={`text-xs font-semibold ${
+              darkMode ? 'text-cyan-300' : 'text-gray-700'
+            }`}>
+              Your Gender
+            </span>
+            <select 
+              className={`border rounded px-3 py-1.5 text-sm ${
+                darkMode 
+                  ? 'bg-slate-800 text-white border-pink-500'
+                  : ''
+              }`}
+              value={gender} 
+              onChange={e=>setGender(e.target.value)}
+            >
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          {!mapOn ? (
+            <button 
+              className={`rounded-xl px-6 py-2 text-sm font-bold ${
+                darkMode 
+                  ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-lg shadow-pink-500/50'
+                  : 'bg-black text-white hover:bg-gray-800'
+              }`}
+              onClick={enableMap}
+            >
+              📍 Enable Location
+            </button>
+          ) : (
+            <button 
+              className={`rounded-xl px-4 py-2 text-sm font-semibold ${
+                darkMode 
+                  ? 'border border-purple-500 text-purple-300 hover:bg-purple-900/30'
+                  : 'border border-orange-300 text-orange-700 hover:bg-orange-50'
+              }`}
+              onClick={disableMap}
+            >
+              ⏹️ Disable
+            </button>
+          )}
+        </div>
+        
+        {mapOn ? (
+          <div id="map" className={`rounded-xl overflow-hidden ${
+            darkMode ? 'ring-2 ring-pink-500/50' : ''
+          }`}></div>
+        ) : (
+          <div className={`text-center py-8 ${
+            darkMode ? 'text-purple-400' : 'text-gray-500'
+          }`}>
+            <span className="text-4xl mb-2 block">📍</span>
+            <p className="text-sm font-semibold">Location is off</p>
+            <p className="text-xs mt-1">Enable location to see gnomes on the map</p>
+          </div>
+        )}
       </div>
+
+      {/* Bonus Slot Machine Modal */}
+      {bonusOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={closeBonus}>
+          <div className={`rounded-3xl shadow-2xl max-w-md w-full p-6 relative ${
+            darkMode
+              ? 'neon-card-purple border-2 border-purple-500'
+              : 'bg-gradient-to-br from-yellow-100 via-yellow-50 to-orange-100'
+          }`} onClick={(e) => e.stopPropagation()}>
+            <button 
+              className={`absolute top-4 right-4 text-2xl hover:scale-110 transition-transform ${
+                darkMode ? 'text-cyan-300 hover:text-white' : 'text-gray-500 hover:text-black'
+              }`}
+              onClick={closeBonus}
+            >
+              ✕
+            </button>
+            
+            <div className="text-center mb-6">
+              <h2 className={`text-3xl font-black mb-2 ${darkMode ? 'text-cyan-300' : ''}`}>🎰 Gnome Bonus!</h2>
+              <p className={`text-sm ${darkMode ? 'text-purple-300' : 'text-gray-700'}`}>
+                Match 5 gnomes to unlock a new one!
+              </p>
+              <div className={`mt-2 text-xs ${darkMode ? 'text-pink-300' : 'text-gray-600'}`}>
+                Spins remaining: <span className="font-bold text-lg">{remainingBonusSpins}</span>
+              </div>
+            </div>
+
+            {/* Slot Machine Reels */}
+            <div className={`rounded-2xl p-6 mb-6 shadow-inner ${
+              darkMode
+                ? 'bg-gradient-to-b from-slate-900 to-purple-900 border border-cyan-500/30'
+                : 'bg-gradient-to-b from-purple-900 to-indigo-900'
+            }`}>
+              <div className="flex justify-center gap-2 mb-4">
+                {reels.map((idx, i) => {
+                  const gnome = window.GV.GNOMES[idx];
+                  return (
+                    <div key={i} className={`rounded-lg p-2 w-16 h-20 flex items-center justify-center shadow-lg ${
+                      darkMode ? 'bg-slate-800 border border-purple-400' : 'bg-white'
+                    }`}>
+                      <img src={gnome.image} alt={gnome.name} className="w-12 h-12 object-contain float-gnome-sm" />
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {winMsg && (
+                <div className={`text-center font-bold text-lg mb-3 ${winMsg.includes('UNLOCKED') ? 'text-yellow-300' : 'text-red-300'}`}>
+                  {winMsg}
+                </div>
+              )}
+
+              <button
+                className={`w-full rounded-xl py-3 px-6 font-bold text-lg transition-all ${
+                  spinning || remainingBonusSpins === 0
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-yellow-400 to-orange-500 hover:from-yellow-500 hover:to-orange-600 text-white shadow-lg'
+                }`}
+                onClick={startSpin}
+                disabled={spinning || remainingBonusSpins === 0}
+              >
+                {spinning ? '🎰 SPINNING...' : remainingBonusSpins > 0 ? '🎰 SPIN!' : 'No Spins Left'}
+              </button>
+            </div>
+
+            <div className="text-center text-xs text-gray-600">
+              <p>Admin pushes bonus spins when new gnomes are added!</p>
+              <p className="mt-1">~12.5% chance to win each spin</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <window.Components.PopularityGrid title="Gnome Popularity — Last 30 Days" showActive={true}/>
     </div>
   );
-}
+});
 
 /* =============================================================================
    ADVERTISER COMPONENT
 ============================================================================= */
-function Advertiser({user}){
+function Advertiser({user, darkMode}){
   const advIdRef=useRef(null);
   const [celebration, setCelebration] = useState(null);
   
@@ -2075,6 +4201,8 @@ function Advertiser({user}){
   const [desc,setDesc]=useState("Good for dine-in only. One-time use.");
   const [target,setTarget]=useState("one");
   const [gnomeId,setGnomeId]=useState(1);
+  const [cityFilter,setCityFilter]=useState("all"); // "all" or specific city
+  const [establishmentFilter,setEstablishmentFilter]=useState("all"); // "all" or specific establishment name
   const [start,setStart]=useState("");
   const [end,setEnd]=useState("");
   const [scanCap,setScanCap]=useState(0);
@@ -2109,6 +4237,8 @@ function Advertiser({user}){
       window.__coupons.push({
         id, advertiserId:advIdRef.current, system:false,
         title, desc, target, gnomeId: target==='one'? Number(gnomeId): undefined,
+        cityFilter, // New field
+        establishmentFilter, // New field
         startAt:s, endAt:e, scanCap: Number(scanCap)||0,
         unlocks:0, active, blocked:false
       });
@@ -2136,49 +4266,217 @@ function Advertiser({user}){
   return (
     <div className="space-y-4">
       <window.Components.AdvertiserIntro />
-      {/* account/ledger/analytics */}
-      <div className="rounded-2xl border p-3 bg-white">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm">Advertiser Account</h3>
-          <div className="text-[11px] text-gray-600">Logged in: <span className="font-mono">{user?.email||'—'}</span></div>
+      
+      {/* Account Overview with Stats */}
+      <div className={`rounded-2xl border-2 p-4 ${darkMode ? 'neon-card-purple border-purple-500' : 'border-indigo-400 bg-gradient-to-br from-indigo-50 to-purple-50'}`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">📊</span>
+          <div className="flex-1">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className={`font-semibold text-sm mb-1 ${darkMode ? 'text-cyan-300' : 'text-indigo-900'}`}>Account Overview</h3>
+                <p className={`text-xs ${darkMode ? 'text-purple-300' : 'text-indigo-700'}`}>Your advertising performance at a glance</p>
+              </div>
+              <div className={`text-[11px] ${darkMode ? 'text-purple-300' : 'text-indigo-600'}`}>
+                Logged in: <span className="font-mono font-semibold">{user?.email||'—'}</span>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="text-xs grid md:grid-cols-3 gap-2 items-end">
-          <div className="rounded border p-2">
-            <div className="font-semibold">Billing</div>
+        
+        <div className="grid md:grid-cols-4 gap-3">
+          {/* Billing Status Card */}
+          <div className={`rounded-xl border p-3 ${darkMode ? 'bg-slate-800/50 border-cyan-500/30' : 'bg-white border-indigo-200'}`}>
+            <div className={`text-xs font-semibold mb-2 flex items-center gap-2 ${darkMode ? 'text-cyan-300' : 'text-indigo-900'}`}>
+              <span>💳</span> Billing Status
+            </div>
             {advIdRef.current && (window.__advertisers||[]).find(a => a.id === advIdRef.current)?.freeAdvertising ? (
               <>
-                <div className="text-[11px] text-green-700 font-semibold">✓ Free Advertising Enabled</div>
-                <div className="text-[11px] text-gray-600">No charges for unlocks</div>
-                <div className="mt-1">
-                  <span className="inline-block text-[11px] px-2 py-0.5 rounded-full border bg-green-50 border-green-500">Card not required</span>
+                <div className="text-[11px] text-green-400 font-semibold mb-1">✓ Free Advertising</div>
+                <div className={`text-[11px] ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>No charges for unlocks</div>
+                <div className="mt-2">
+                  <span className="inline-block text-[11px] px-2 py-1 rounded-full bg-green-500/20 border border-green-500 text-green-400 font-semibold">
+                    Card not required
+                  </span>
                 </div>
               </>
             ) : (
               <>
-                <div className="text-[11px] text-gray-600">Per unlock: {window.GV.fmtMoney(window.__costPerUnlock)} (once per device/gnome/cycle)</div>
-                <div className="mt-1">
+                <div className={`text-[11px] ${darkMode ? 'text-gray-400' : 'text-gray-600'} mb-1`}>
+                  Per unlock: <span className="font-mono font-semibold">{window.GV.fmtMoney(window.__costPerUnlock)}</span>
+                </div>
+                <div className={`text-[10px] ${darkMode ? 'text-gray-500' : 'text-gray-500'} mb-2`}>
+                  (once per device/gnome/cycle)
+                </div>
+                <div className="mt-2">
                   {card
-                    ? <span className="inline-block text-[11px] px-2 py-0.5 rounded-full border bg-green-50 border-green-500">Card on file</span>
-                    : <button className="rounded bg-black text-white px-2 py-1 text-xs" onClick={saveCardOnFile}>Add card & authorize</button>}
+                    ? <span className="inline-block text-[11px] px-2 py-1 rounded-full bg-green-500/20 border border-green-500 text-green-400 font-semibold">
+                        ✓ Card on file
+                      </span>
+                    : <button className={`rounded px-3 py-1.5 text-xs font-semibold w-full ${
+                        darkMode 
+                          ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-white'
+                          : 'bg-black text-white hover:bg-gray-800'
+                      }`} onClick={saveCardOnFile}>
+                        Add Card
+                      </button>}
                 </div>
               </>
             )}
           </div>
-          <div className="rounded border p-2">
-            <div className="font-semibold">Ledger</div>
-            <div className="text-[11px]">Charges: <span className="font-mono">{myCharges.length}</span></div>
-            <div className="text-[11px]">Total: <span className="font-mono">{window.GV.fmtMoney(spent)}</span></div>
+          
+          {/* Total Spend Card */}
+          <div className={`rounded-xl border p-3 ${darkMode ? 'bg-slate-800/50 border-pink-500/30' : 'bg-white border-indigo-200'}`}>
+            <div className={`text-xs font-semibold mb-2 flex items-center gap-2 ${darkMode ? 'text-pink-300' : 'text-indigo-900'}`}>
+              <span>💰</span> Total Spend
+            </div>
+            <div className={`text-2xl font-black mb-1 ${darkMode ? 'text-cyan-300' : 'text-indigo-900'}`}>
+              {window.GV.fmtMoney(spent)}
+            </div>
+            <div className={`text-[11px] ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              {myCharges.length} charge{myCharges.length !== 1 ? 's' : ''}
+            </div>
           </div>
-          <div className="rounded border p-2">
-            <div className="font-semibold">Analytics (30d)</div>
-            <div className="text-[11px]">Avg scans / gnome: <span className="font-mono">{Math.round(window.GV.popularity30d().reduce((a,b)=>a+b.scans,0)/window.GV.GNOMES.length)}</span></div>
+          
+          {/* Active Coupons Card */}
+          <div className={`rounded-xl border p-3 ${darkMode ? 'bg-slate-800/50 border-purple-500/30' : 'bg-white border-indigo-200'}`}>
+            <div className={`text-xs font-semibold mb-2 flex items-center gap-2 ${darkMode ? 'text-purple-300' : 'text-indigo-900'}`}>
+              <span>🎟️</span> Your Coupons
+            </div>
+            <div className={`text-2xl font-black mb-1 ${darkMode ? 'text-cyan-300' : 'text-indigo-900'}`}>
+              {couponsForMe.filter(c => c.active).length}
+            </div>
+            <div className={`text-[11px] ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              {couponsForMe.length} total ({couponsForMe.filter(c => !c.active).length} paused)
+            </div>
+          </div>
+          
+          {/* Performance Card */}
+          <div className={`rounded-xl border p-3 ${darkMode ? 'bg-slate-800/50 border-cyan-500/30' : 'bg-white border-indigo-200'}`}>
+            <div className={`text-xs font-semibold mb-2 flex items-center gap-2 ${darkMode ? 'text-cyan-300' : 'text-indigo-900'}`}>
+              <span>📈</span> Performance
+            </div>
+            <div className={`text-2xl font-black mb-1 ${darkMode ? 'text-cyan-300' : 'text-indigo-900'}`}>
+              {myCharges.length}
+            </div>
+            <div className={`text-[11px] ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              Total unlocks
+            </div>
           </div>
         </div>
-        {msg && <div className="mt-2 text-xs text-green-700">{msg}</div>}
+        
+        {msg && <div className={`mt-3 text-xs font-semibold ${darkMode ? 'text-green-400' : 'text-green-700'}`}>{msg}</div>}
+      </div>
+
+      {/* Financial Ledger */}
+      <div className={`rounded-2xl border-2 p-4 ${darkMode ? 'neon-card-pink border-pink-500' : 'border-green-400 bg-gradient-to-br from-green-50 to-emerald-50'}`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">💳</span>
+          <div className="flex-1">
+            <h3 className={`font-semibold text-sm mb-1 ${darkMode ? 'text-pink-300' : 'text-green-900'}`}>Transaction Ledger</h3>
+            <p className={`text-xs ${darkMode ? 'text-purple-300' : 'text-green-700'}`}>
+              Detailed breakdown of all charges by gnome and location
+            </p>
+          </div>
+        </div>
+        
+        {myCharges.length === 0 ? (
+          <div className={`text-center py-8 ${darkMode ? 'text-purple-300' : 'text-gray-600'}`}>
+            <div className="text-4xl mb-3">📭</div>
+            <div className="text-sm font-semibold mb-1">No charges yet</div>
+            <div className="text-xs">Create and activate coupons to start earning unlocks!</div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Group by Gnome */}
+            {(() => {
+              const chargesByGnome = {};
+              myCharges.forEach(charge => {
+                if (!charge.gnomeId) return;
+                if (!chargesByGnome[charge.gnomeId]) {
+                  const gnome = window.GV.GNOMES.find(g => g.id === charge.gnomeId);
+                  chargesByGnome[charge.gnomeId] = {
+                    gnome,
+                    charges: [],
+                    total: 0,
+                    locations: new Set()
+                  };
+                }
+                chargesByGnome[charge.gnomeId].charges.push(charge);
+                chargesByGnome[charge.gnomeId].total += charge.amount || 0;
+                
+                // Find location for this charge
+                const assignment = window.__gnomeAssignments[charge.gnomeId];
+                if (assignment) {
+                  const partner = (window.__partners || []).find(p => p.id === assignment.partnerId);
+                  if (partner) {
+                    chargesByGnome[charge.gnomeId].locations.add(partner.establishment || partner.name);
+                  }
+                }
+              });
+              
+              return Object.values(chargesByGnome).map(({gnome, charges, total, locations}) => (
+                <div key={gnome.id} className={`rounded-xl border p-3 ${
+                  darkMode 
+                    ? 'bg-slate-800/50 border-purple-500/30' 
+                    : 'bg-white border-green-200'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      <img src={gnome.image} alt={gnome.name} className="w-10 h-10 object-contain float-gnome-sm" />
+                      <div>
+                        <div className={`text-sm font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-900'}`}>
+                          #{gnome.id} {gnome.name}
+                        </div>
+                        <div className={`text-[11px] ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                          {charges.length} unlock{charges.length !== 1 ? 's' : ''} • {Array.from(locations).join(', ')}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className={`text-lg font-black ${darkMode ? 'text-pink-300' : 'text-green-700'}`}>
+                        {window.GV.fmtMoney(total)}
+                      </div>
+                      <div className={`text-[10px] ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                        {window.GV.fmtMoney(total / charges.length)}/unlock
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Recent Transactions */}
+                  <details className="mt-2">
+                    <summary className={`text-xs cursor-pointer ${darkMode ? 'text-purple-300 hover:text-cyan-300' : 'text-green-600 hover:text-green-800'}`}>
+                      View {charges.length} transaction{charges.length !== 1 ? 's' : ''}
+                    </summary>
+                    <div className="mt-2 space-y-1">
+                      {charges.slice(0, 10).map((charge, idx) => (
+                        <div key={idx} className={`text-[11px] flex items-center justify-between py-1 px-2 rounded ${
+                          darkMode ? 'bg-slate-900/50' : 'bg-gray-50'
+                        }`}>
+                          <span className={darkMode ? 'text-gray-400' : 'text-gray-600'}>
+                            {new Date(charge.ts).toLocaleDateString()} {new Date(charge.ts).toLocaleTimeString()}
+                          </span>
+                          <span className={`font-mono font-semibold ${darkMode ? 'text-pink-300' : 'text-green-700'}`}>
+                            {window.GV.fmtMoney(charge.amount)}
+                          </span>
+                        </div>
+                      ))}
+                      {charges.length > 10 && (
+                        <div className={`text-[10px] text-center py-1 ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                          ... and {charges.length - 10} more
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                </div>
+              ));
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Unlocked Gnomes Section */}
-      <div className="rounded-2xl border p-3 bg-white">
+      <div className="rounded-2xl border p-3 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white">
         <h3 className="font-semibold text-sm mb-2">Unlocked Gnomes</h3>
         <div className="text-[11px] text-gray-600 mb-3">Your coupons unlocked via gnome scans</div>
         {(() => {
@@ -2222,59 +4520,209 @@ function Advertiser({user}){
       </div>
 
       {/* create/manage coupons */}
-      <div className="rounded-2xl border p-3 bg-white">
-        <h3 className="font-semibold text-sm mb-2">Create / Manage Coupons</h3>
-        <div className="grid md:grid-cols-4 gap-2 text-xs">
-          <label className="grid gap-1">Title<input className="border rounded px-2 py-1" value={title} onChange={e=>setTitle(e.target.value)}/></label>
-          <label className="grid gap-1 md:col-span-2">Description<input className="border rounded px-2 py-1" value={desc} onChange={e=>setDesc(e.target.value)}/></label>
-          <label className="grid gap-1">Target
-            <select className="border rounded px-2 py-1" value={target} onChange={e=>setTarget(e.target.value)}>
+      <div className={`rounded-2xl border-2 p-4 ${darkMode ? 'neon-card border-cyan-500' : 'border-blue-400 bg-gradient-to-br from-blue-50 to-indigo-50'}`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">🎟️</span>
+          <div className="flex-1">
+            <h3 className={`font-semibold text-sm mb-1 ${darkMode ? 'text-cyan-300' : 'text-blue-900'}`}>Create Coupon</h3>
+            <p className={`text-xs ${darkMode ? 'text-purple-300' : 'text-blue-700'}`}>
+              Design your offer and target specific gnomes, cities, or establishments
+            </p>
+          </div>
+        </div>
+        
+        <div className="grid md:grid-cols-4 gap-3 text-xs">
+          <label className="grid gap-1">
+            <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>Title</span>
+            <input className={`border rounded px-3 py-2 ${darkMode ? 'bg-slate-800 text-white border-cyan-500' : ''}`} value={title} onChange={e=>setTitle(e.target.value)} placeholder="20% off up to $500"/>
+          </label>
+          <label className="grid gap-1 md:col-span-2">
+            <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>Description</span>
+            <input className={`border rounded px-3 py-2 ${darkMode ? 'bg-slate-800 text-white border-cyan-500' : ''}`} value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Good for dine-in only. One-time use."/>
+          </label>
+          <label className="grid gap-1">
+            <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>Target Gnome</span>
+            <select className={`border rounded px-3 py-2 ${darkMode ? 'bg-slate-800 text-white border-cyan-500' : ''}`} value={target} onChange={e=>setTarget(e.target.value)}>
               <option value="one">Specific gnome</option>
               <option value="all">All gnomes</option>
               <option value="golden">Golden gnome</option>
             </select>
           </label>
-          {target==='one' && <label className="grid gap-1">Gnome ID
-            <input type="number" className="border rounded px-2 py-1" value={gnomeId} onChange={e=>setGnomeId(e.target.value)}/>
+          {target==='one' && <label className="grid gap-1">
+            <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>Gnome ID</span>
+            <input type="number" className={`border rounded px-3 py-2 ${darkMode ? 'bg-slate-800 text-white border-cyan-500' : ''}`} value={gnomeId} onChange={e=>setGnomeId(e.target.value)}/>
           </label>}
-          <label className="grid gap-1">Start
-            <input type="datetime-local" className="border rounded px-2 py-1" value={start} onChange={e=>setStart(e.target.value)}/>
+          
+          {/* City Filter */}
+          <label className="grid gap-1">
+            <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>Target City</span>
+            <select 
+              className={`border rounded px-3 py-2 ${darkMode ? 'bg-slate-800 text-white border-cyan-500' : ''}`}
+              value={cityFilter} 
+              onChange={e=>setCityFilter(e.target.value)}
+            >
+              <option value="all">All Cities</option>
+              {(() => {
+                const cities = new Set();
+                (window.__partners || []).forEach(p => {
+                  if (p.address) {
+                    const parts = p.address.split(',');
+                    if (parts.length >= 2) {
+                      const city = parts[parts.length - 2].trim();
+                      cities.add(city);
+                    }
+                  }
+                });
+                return Array.from(cities).sort().map(city => (
+                  <option key={city} value={city}>{city}</option>
+                ));
+              })()}
+            </select>
           </label>
-          <label className="grid gap-1">End
-            <input type="datetime-local" className="border rounded px-2 py-1" value={end} onChange={e=>setEnd(e.target.value)}/>
+          
+          {/* Establishment Filter */}
+          <label className="grid gap-1">
+            <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>Target Establishment</span>
+            <select 
+              className={`border rounded px-3 py-2 ${darkMode ? 'bg-slate-800 text-white border-cyan-500' : ''}`}
+              value={establishmentFilter} 
+              onChange={e=>setEstablishmentFilter(e.target.value)}
+            >
+              <option value="all">All Establishments</option>
+              {(() => {
+                let partners = window.__partners || [];
+                if (cityFilter !== "all") {
+                  partners = partners.filter(p => {
+                    if (!p.address) return false;
+                    const parts = p.address.split(',');
+                    if (parts.length >= 2) {
+                      const city = parts[parts.length - 2].trim();
+                      return city === cityFilter;
+                    }
+                    return false;
+                  });
+                }
+                
+                return partners
+                  .filter(p => p.establishment)
+                  .sort((a, b) => a.establishment.localeCompare(b.establishment))
+                  .map(p => (
+                    <option key={p.id} value={p.establishment}>
+                      {p.establishment}
+                    </option>
+                  ));
+              })()}
+            </select>
           </label>
-          <label className="grid gap-1">Scan cap (0=unlimited)
-            <input type="number" className="border rounded px-2 py-1" value={scanCap} onChange={e=>setScanCap(e.target.value)}/>
+          
+          <label className="grid gap-1">
+            <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>Start Date</span>
+            <input type="datetime-local" className={`border rounded px-3 py-2 ${darkMode ? 'bg-slate-800 text-white border-cyan-500' : ''}`} value={start} onChange={e=>setStart(e.target.value)}/>
           </label>
-          <label className="flex items-center gap-2 mt-5"><input type="checkbox" checked={active} onChange={e=>setActive(e.target.checked)}/> Active</label>
-          <div className="md:col-span-4">
-            <button className="rounded bg-black text-white px-3 py-1.5 text-sm" onClick={createCoupon} disabled={!card}>Create Coupon</button>
+          <label className="grid gap-1">
+            <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>End Date</span>
+            <input type="datetime-local" className={`border rounded px-3 py-2 ${darkMode ? 'bg-slate-800 text-white border-cyan-500' : ''}`} value={end} onChange={e=>setEnd(e.target.value)}/>
+          </label>
+          <label className="grid gap-1">
+            <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>Scan Cap</span>
+            <input type="number" className={`border rounded px-3 py-2 ${darkMode ? 'bg-slate-800 text-white border-cyan-500' : ''}`} value={scanCap} onChange={e=>setScanCap(e.target.value)} placeholder="0 = unlimited"/>
+          </label>
+          <label className="flex items-center gap-2 mt-6">
+            <input type="checkbox" checked={active} onChange={e=>setActive(e.target.checked)} className="w-4 h-4"/>
+            <span className={darkMode ? 'text-purple-300' : ''}>Active on creation</span>
+          </label>
+        </div>
+        
+        <div className="mt-4 flex items-center gap-3">
+          <button 
+            className={`rounded-xl px-6 py-2.5 text-sm font-bold transition-all ${
+              darkMode
+                ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-white shadow-lg shadow-cyan-500/50'
+                : 'bg-black text-white hover:bg-gray-800'
+            }`}
+            onClick={createCoupon} 
+            disabled={!card && !(window.__advertisers||[]).find(a => a.id === advIdRef.current)?.freeAdvertising}
+          >
+            🎟️ Create Coupon
+          </button>
+          <div className={`text-[11px] ${darkMode ? 'text-purple-300' : 'text-gray-600'}`}>
+            💡 Filter by city and/or establishment to target specific locations
+          </div>
+        </div>
+      </div>
+
+      {/* Manage Coupons */}
+      <div className={`rounded-2xl border-2 p-4 ${darkMode ? 'neon-card-purple border-purple-500' : 'border-purple-400 bg-gradient-to-br from-purple-50 to-pink-50'}`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">📋</span>
+          <div className="flex-1">
+            <h3 className={`font-semibold text-sm mb-1 ${darkMode ? 'text-pink-300' : 'text-purple-900'}`}>Manage Coupons</h3>
+            <p className={`text-xs ${darkMode ? 'text-purple-300' : 'text-purple-700'}`}>
+              Control active coupons and send wallet push notifications
+            </p>
           </div>
         </div>
 
-        <div className="mt-4">
-          <h4 className="font-semibold text-sm mb-1">Your Coupons</h4>
-          <div className="grid md:grid-cols-2 gap-2 text-xs">
-            {couponsForMe.length===0 && <div className="text-gray-500">No coupons yet.</div>}
+        {couponsForMe.length===0 ? (
+          <div className={`text-center py-8 ${darkMode ? 'text-purple-300' : 'text-gray-600'}`}>
+            <div className="text-4xl mb-3">🎟️</div>
+            <div className="text-sm font-semibold mb-1">No coupons created yet</div>
+            <div className="text-xs">Use the form above to create your first coupon!</div>
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-2 gap-3 text-xs">
             {couponsForMe.map(c=>(
-              <div key={c.id} className="rounded border p-2">
-                <div className="flex items-center gap-2">
-                  <div className="font-semibold">{c.title}</div>
-                  <span className="ml-auto"><window.Components.ActiveBadge active={c.active}/></span>
+              <div key={c.id} className={`rounded-xl border p-3 ${
+                darkMode 
+                  ? 'bg-slate-800/50 border-purple-500/30' 
+                  : 'bg-white border-purple-200'
+              }`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className={`font-semibold flex-1 ${darkMode ? 'text-cyan-300' : ''}`}>{c.title}</div>
+                  <window.Components.ActiveBadge active={c.active}/>
                 </div>
-                <div className="text-[11px] text-gray-600">{c.desc}</div>
-                <div className="mt-1 text-[11px]">Target: <span className="font-mono">{c.target}{c.target==='one'?` #${c.gnomeId}`:''}</span></div>
-                <div className="text-[11px]">Window: <span className="font-mono">{c.startAt?new Date(c.startAt).toLocaleString():'—'} → {c.endAt?new Date(c.endAt).toLocaleString():'—'}</span></div>
-                <div className="text-[11px]">Unlocks: <span className="font-mono">{c.unlocks||0}</span>{c.scanCap?` / ${c.scanCap}`:''}</div>
-                <div className="mt-2 flex items-center gap-2">
-                  <button className="rounded border px-2 py-1" onClick={()=>toggleActive(c)}>{c.active?'Pause':'Activate'}</button>
-                  <input className="border rounded px-2 py-1 flex-1" placeholder="Wallet push message" value={pushText} onChange={e=>setPushText(e.target.value)}/>
-                  <button className="rounded bg-black text-white px-2 py-1" onClick={()=>sendWalletPush(c)}>Send Push</button>
+                <div className={`text-[11px] mb-2 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{c.desc}</div>
+                <div className={`space-y-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  <div className="text-[11px]">🎯 Gnome: <span className="font-mono">{c.target}{c.target==='one'?` #${c.gnomeId}`:''}</span></div>
+                  <div className="text-[11px]">🏙️ City: <span className="font-mono">{c.cityFilter || 'All'}</span></div>
+                  <div className="text-[11px]">🏢 Establishment: <span className="font-mono">{c.establishmentFilter || 'All'}</span></div>
+                  <div className="text-[11px]">📅 Window: <span className="font-mono text-[10px]">{c.startAt?new Date(c.startAt).toLocaleString():'—'} → {c.endAt?new Date(c.endAt).toLocaleString():'—'}</span></div>
+                  <div className="text-[11px]">📊 Unlocks: <span className="font-mono font-semibold">{c.unlocks||0}</span>{c.scanCap?` / ${c.scanCap}`:''}</div>
+                </div>
+                <div className="mt-3 flex flex-col gap-2">
+                  <button 
+                    className={`rounded px-3 py-1.5 text-xs font-semibold ${
+                      c.active 
+                        ? (darkMode ? 'bg-orange-600 text-white' : 'bg-orange-500 text-white hover:bg-orange-600')
+                        : (darkMode ? 'bg-green-600 text-white' : 'bg-green-500 text-white hover:bg-green-600')
+                    }`}
+                    onClick={()=>toggleActive(c)}
+                  >
+                    {c.active?'⏸ Pause':'▶ Activate'}
+                  </button>
+                  <div className="flex gap-2">
+                    <input 
+                      className={`border rounded px-2 py-1 flex-1 text-xs ${darkMode ? 'bg-slate-900 text-white border-purple-500' : ''}`}
+                      placeholder="Wallet push message" 
+                      value={pushText} 
+                      onChange={e=>setPushText(e.target.value)}
+                    />
+                    <button 
+                      className={`rounded px-3 py-1 text-xs font-semibold ${
+                        darkMode 
+                          ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white'
+                          : 'bg-black text-white hover:bg-gray-800'
+                      }`}
+                      onClick={()=>sendWalletPush(c)}
+                    >
+                      📱 Push
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        )}
       </div>
 
       <window.Components.PopularityGrid title="Gnome Popularity — 30d (Active state shown)" showActive={true}/>
@@ -2296,9 +4744,12 @@ function Advertiser({user}){
 /* =============================================================================
    PARTNERS COMPONENT
 ============================================================================= */
-function Partners({user}){
+function Partners({user, darkMode}){
   const partnerRef=useRef(null);
+  const addressInputRef = useRef(null);
+  const autocompleteRef = useRef(null);
   const [est,setEst]=useState(""); const [addr,setAddr]=useState("");
+  const [latLng, setLatLng] = useState(null); // Store actual coordinates
   const [card,setCard]=useState(false);
   const [bid,setBid]=useState(0); const [bidGnome,setBidGnome]=useState(1);
   const [msg,setMsg]=useState("");
@@ -2311,6 +4762,40 @@ function Partners({user}){
   const [, forceUpdate] = useState({});
   const [auctionMode, setAuctionMode] = useState(window.__auctionEnabled);
   const [assignmentsHash, setAssignmentsHash] = useState('');
+
+  // Initialize Google Places Autocomplete
+  useEffect(() => {
+    if (!addressInputRef.current || !window.google) return;
+    
+    const autocomplete = new window.google.maps.places.Autocomplete(addressInputRef.current, {
+      types: ['establishment', 'geocode'],
+      componentRestrictions: { country: 'us' }
+    });
+    
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace();
+      if (!place.geometry || !place.geometry.location) {
+        setMsg("No location details available for that address.");
+        return;
+      }
+      
+      // Get the formatted address
+      const formattedAddress = place.formatted_address || place.name;
+      setAddr(formattedAddress);
+      
+      // Store the exact lat/lng
+      const lat = place.geometry.location.lat();
+      const lng = place.geometry.location.lng();
+      setLatLng({ lat, lng });
+      
+      // If establishment name is empty, try to fill it from place name
+      if (!est && place.name) {
+        setEst(place.name);
+      }
+    });
+    
+    autocompleteRef.current = autocomplete;
+  }, [est]);
 
   // Subscribe to action state changes (for auction mode toggle)
   useEffect(() => {
@@ -2366,13 +4851,37 @@ function Partners({user}){
 
   useEffect(()=>{
     if(!user) return;
+    
+    // Load partner profile from storage
+    const savedProfile = window.GV.loadUserProfile(user.email, 'partner');
+    
     let p=(window.__partners||[]).find(x=>x.email===user.email) ||
            (window.__partners||[]).find(x=>x.name===user.name);
     if(!p){
       p={id:'par-'+Math.random().toString(36).slice(2,8),name:user.name||'Partner',email:user.email,establishment:'',address:'',cardOnFile:false,blocked:false};
       window.__partners.push(p);
     }
-    partnerRef.current=p; setEst(p.establishment||""); setAddr(p.address||""); setCard(!!p.cardOnFile);
+    
+    // Restore saved data if available
+    if (savedProfile.establishment) {
+      p.establishment = savedProfile.establishment;
+      p.address = savedProfile.address;
+      p.cardOnFile = savedProfile.cardOnFile;
+      if (savedProfile.lat && savedProfile.lng) {
+        p.lat = savedProfile.lat;
+        p.lng = savedProfile.lng;
+      }
+    }
+    
+    partnerRef.current=p; 
+    setEst(p.establishment||""); 
+    setAddr(p.address||""); 
+    setCard(!!p.cardOnFile);
+    
+    // Load saved lat/lng if available
+    if (p.lat && p.lng) {
+      setLatLng({ lat: p.lat, lng: p.lng });
+    }
 
     // Check for unclaimed celebrations
     const myCelebrations = (window.__partnerCelebrations || []).filter(c => c.partnerId === p.id && !c.claimed);
@@ -2385,6 +4894,23 @@ function Partners({user}){
     }
   },[user]);
 
+  // Extract partner's city from address
+  const partnerCity = useMemo(() => {
+    const p = partnerRef.current;
+    if (!p || !p.address) return null;
+    const parts = p.address.split(',');
+    if (parts.length >= 2) {
+      return parts[parts.length - 2].trim();
+    }
+    return null;
+  }, [partnerRef.current?.address]);
+
+  // Check if auction mode is enabled for this partner's city
+  const cityAuctionEnabled = useMemo(() => {
+    if (!partnerCity) return false;
+    return window.__auctionEnabledByCity[partnerCity] || false;
+  }, [partnerCity]);
+
   const myWins = window.GV.GNOMES.filter(g=>window.__gnomeAssignments[g.id]?.partnerId===partnerRef.current?.id)
     .map(g=>{
       const assign=window.__gnomeAssignments[g.id];
@@ -2396,13 +4922,41 @@ function Partners({user}){
   function saveProfile(){
     window.GV.performAction(async () => {
       const p=partnerRef.current; if(!p) return;
-      p.establishment=est; p.address=addr; setMsg("Profile saved.");
+      p.establishment=est; 
+      p.address=addr;
+      
+      // Save lat/lng if available from autocomplete
+      if (latLng) {
+        p.lat = latLng.lat;
+        p.lng = latLng.lng;
+        setMsg("Profile saved with exact location!");
+      } else {
+        setMsg("Profile saved (using approximate location).");
+      }
+      
+      // Persist to user profile
+      if (user?.email) {
+        window.GV.saveUserProfile(user.email, 'partner', {
+          establishment: p.establishment,
+          address: p.address,
+          lat: p.lat,
+          lng: p.lng,
+          cardOnFile: p.cardOnFile
+        });
+      }
     }, "Profile Saved!");
   }
   function saveCard(){
     window.GV.performAction(async () => {
       const p=partnerRef.current; if(!p) return;
       p.cardOnFile=true; setCard(true); setMsg("Card on file & authorized.");
+      
+      // Persist to user profile
+      if (user?.email) {
+        window.GV.saveUserProfile(user.email, 'partner', {
+          cardOnFile: true
+        });
+      }
     }, "Card Authorized!");
   }
   function placeBid(){
@@ -2429,6 +4983,15 @@ function Partners({user}){
     
     window.GV.performAction(async () => {
       const assignment = window.__gnomeAssignments[gnomeId];
+      
+      // Check if admin has claimed this gnome in the same city
+      if (assignment.adminClaimed && partnerCity) {
+        const adminClaim = window.__adminClaimedGnomes[gnomeId];
+        if (adminClaim && adminClaim.city === partnerCity) {
+          setMsg(`❌ Gnome #${gnomeId} has been claimed by admin for ${adminClaim.establishment} in ${partnerCity}. This gnome is not available for partners in your city.`);
+          return; // Prevent claiming
+        }
+      }
       
       console.log('selectGnome called:', { gnomeId, assignment, partnerId: p.id });
       
@@ -2521,7 +5084,24 @@ function Partners({user}){
 
   function highestFor(id){
     let max=0, by=null;
-    for(const r of (window.__partnerBids||[])){ if(r.id===id && r.amt>max){ max=r.amt; by=r.partnerId; } }
+    
+    // Only count bids from partners in the same city
+    for(const r of (window.__partnerBids||[])){ 
+      if(r.id===id && r.amt>max){
+        const bidderPartner = (window.__partners||[]).find(p=>p.id===r.partnerId);
+        if (!bidderPartner || !bidderPartner.address) continue;
+        
+        // Extract bidder's city
+        const bidderParts = bidderPartner.address.split(',');
+        const bidderCity = bidderParts.length >= 2 ? bidderParts[bidderParts.length - 2].trim() : null;
+        
+        // Only count if same city as current partner
+        if (bidderCity === partnerCity) {
+          max=r.amt; 
+          by=r.partnerId;
+        }
+      }
+    }
     const who=(window.__partners||[]).find(p=>p.id===by);
     return {max,who};
   }
@@ -2551,25 +5131,35 @@ function Partners({user}){
         if (blockedGnomes.length === 0) return null;
         
         return (
-          <div className="rounded-2xl border-2 border-red-500 bg-red-50 p-4">
+          <div className={`rounded-2xl border-2 p-4 ${
+            darkMode 
+              ? 'border-red-500 bg-red-950/50'
+              : 'border-red-500 bg-red-50'
+          }`}>
             <div className="flex items-start gap-3">
               <span className="text-3xl">⚠️</span>
               <div className="flex-1">
-                <h3 className="font-bold text-red-900 mb-2">URGENT: Trigger Image Blocked by Admin</h3>
-                <p className="text-red-800 mb-3">
+                <h3 className={`font-bold mb-2 ${darkMode ? 'text-red-300' : 'text-red-900'}`}>
+                  URGENT: Trigger Image Blocked by Admin
+                </h3>
+                <p className={`mb-3 ${darkMode ? 'text-red-200' : 'text-red-800'}`}>
                   The following gnome trigger images have been deactivated by the administrator. 
                   Participants cannot scan these gnomes until you upload new trigger images!
                 </p>
                 <div className="space-y-2">
                   {blockedGnomes.map(g => (
-                    <div key={g.id} className="bg-white rounded-lg p-3 border border-red-300">
+                    <div key={g.id} className={`rounded-lg p-3 border ${
+                      darkMode 
+                        ? 'bg-slate-800/50 border-red-500/30'
+                        : 'bg-white border-red-300'
+                    }`}>
                       <div className="flex items-center gap-2">
-                        <img src={g.image} alt={g.name} className="w-8 h-8" />
-                        <span className="font-semibold text-red-900">
+                        <img src={g.image} alt={g.name} className="w-8 h-8 float-gnome-sm" />
+                        <span className={`font-semibold ${darkMode ? 'text-red-300' : 'text-red-900'}`}>
                           #{g.id} {g.name} Gnome
                         </span>
                       </div>
-                      <p className="text-sm text-red-700 mt-1">
+                      <p className={`text-sm mt-1 ${darkMode ? 'text-red-200' : 'text-red-700'}`}>
                         Please upload a new trigger image immediately using the Gnome Management section below.
                       </p>
                     </div>
@@ -2581,83 +5171,299 @@ function Partners({user}){
         );
       })()}
       
-      {/* profile */}
-      <div className="rounded-2xl border p-3 bg-white">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm">Partner Account</h3>
-          <div className="text-[11px] text-gray-600">Logged in: <span className="font-mono">{user?.email||'—'}</span></div>
-        </div>
-        <div className="text-xs grid md:grid-cols-3 gap-2 items-end">
-          <label className="grid gap-1">Establishment
-            <input className="border rounded px-2 py-1" value={est} onChange={e=>setEst(e.target.value)}/>
-          </label>
-          <label className="grid gap-1 md:col-span-2">Address
-            <input className="border rounded px-2 py-1" value={addr} onChange={e=>setAddr(e.target.value)}/>
-          </label>
-          <div className="md:col-span-3 flex items-center gap-2">
-            <button className="rounded border px-2 py-1 text-xs" onClick={saveProfile}>Save Profile</button>
-            {window.__auctionEnabled && (
-              card
-                ? <span className="text-[11px] px-2 py-0.5 rounded-full border bg-green-50 border-green-500">Card on file</span>
-                : <button className="rounded bg-black text-white px-2 py-1 text-xs" onClick={saveCard}>Add card & authorize</button>
-            )}
-            {!window.__auctionEnabled && (
-              <span className="text-[11px] text-gray-600">Card not required in selection mode</span>
-            )}
-          </div>
-        </div>
-        {msg && <div className="mt-2 text-xs text-green-700">{msg}</div>}
-      </div>
-
-      {/* Bidding or Selection Mode */}
-      {window.__auctionEnabled ? (
-        <div className="rounded-2xl border p-3 bg-white">
-          <h3 className="font-semibold text-sm mb-2">Bid for Gnomes (Auction Mode)</h3>
-        <div className="grid md:grid-cols-2 gap-2 text-xs">
-          <label className="grid gap-1">Gnome
-            <select className="border rounded px-2 py-1" value={bidGnome} onChange={e=>setBidGnome(e.target.value)}>
-              {window.GV.GNOMES.map(g=><option key={g.id} value={g.id}>#{g.id} {g.name}</option>)}
-            </select>
-          </label>
-          <label className="grid gap-1">Your Bid (USD)
-            <input type="number" className="border rounded px-2 py-1" value={bid} onChange={e=>setBid(e.target.value)}/>
-          </label>
-          <div className="md:col-span-2">
-            <button className="rounded bg-black text-white px-3 py-1.5 text-sm" onClick={placeBid} disabled={!card}>Place Bid</button>
-          </div>
-        </div>
-
-        <div className="mt-3 grid md:grid-cols-2 gap-2">
-          {window.GV.GNOMES.map(g=>{
-            const {max,who}=highestFor(g.id);
-            const holder=window.__gnomeAssignments[g.id]?.partnerId;
-            const holderRec=(window.__partners||[]).find(p=>p.id===holder);
-            return (
-              <div key={g.id} className="rounded border p-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <img src={g.image} className="w-5 h-5 object-contain" alt=""/><div className="font-semibold">#{g.id} {g.name}</div>
-                  <div className="ml-auto text-[11px]">Top bid: <span className="font-mono">{window.GV.fmtMoney(max)}</span> {who?` by ${who.establishment||who.name||'Partner'}`:''}</div>
-                </div>
-                <div className="mt-1 text-[11px] text-gray-600">Currently located at: <span className="font-mono">{holderRec?.establishment||holderRec?.name||'—'}</span></div>
-                <div className="text-[11px] text-gray-500">Pickup address: <span className="font-mono">{holderRec?.address||'—'}</span></div>
+      {/* Profile - Enhanced */}
+      <div className={`rounded-2xl border-2 p-4 ${
+        darkMode 
+          ? 'neon-card-purple border-purple-500'
+          : 'border-indigo-400 bg-gradient-to-br from-indigo-50 to-blue-50'
+      }`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">🏢</span>
+          <div className="flex-1">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <h3 className={`font-semibold text-sm ${darkMode ? 'text-cyan-300' : 'text-indigo-900'}`}>
+                  Partner Profile
+                </h3>
+                <window.Components.CycleBadge />
+                {partnerCity && (
+                  <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
+                    darkMode 
+                      ? 'bg-purple-500/30 border border-purple-400 text-purple-300'
+                      : 'bg-blue-100 border border-blue-300 text-blue-700'
+                  }`}>
+                    📍 {partnerCity}
+                  </span>
+                )}
               </div>
-            );
-          })}
+              <div className={`text-[11px] ${darkMode ? 'text-purple-300' : 'text-indigo-600'}`}>
+                Logged in: <span className="font-mono font-semibold">{user?.email||'—'}</span>
+              </div>
+            </div>
+          </div>
         </div>
+        
+        <div className="grid md:grid-cols-3 gap-3 text-xs">
+          <label className="grid gap-1">
+            <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>
+              Establishment Name
+            </span>
+            <input 
+              className={`border rounded px-3 py-2 ${
+                darkMode 
+                  ? 'bg-slate-800 text-white border-cyan-500'
+                  : ''
+              }`}
+              value={est} 
+              onChange={e=>setEst(e.target.value)}
+              placeholder="Your business name"
+            />
+          </label>
+          <label className="grid gap-1 md:col-span-2">
+            <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>
+              Address (with autocomplete)
+            </span>
+            <input 
+              ref={addressInputRef}
+              className={`border rounded px-3 py-2 ${
+                darkMode 
+                  ? 'bg-slate-800 text-white border-cyan-500'
+                  : ''
+              }`}
+              value={addr} 
+              onChange={e=>setAddr(e.target.value)}
+              placeholder="Start typing to search for your business..."
+            />
+            {latLng && (
+              <span className={`text-[10px] font-semibold ${
+                darkMode ? 'text-green-400' : 'text-green-600'
+              }`}>
+                ✓ Exact location saved ({latLng.lat.toFixed(6)}, {latLng.lng.toFixed(6)})
+              </span>
+            )}
+          </label>
+        </div>
+        
+        <div className="mt-4 flex items-center gap-3 flex-wrap">
+          <button 
+            className={`rounded-xl px-6 py-2.5 text-sm font-bold ${
+              darkMode 
+                ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-white shadow-lg shadow-cyan-500/50'
+                : 'bg-black text-white hover:bg-gray-800'
+            }`}
+            onClick={saveProfile}
+          >
+            💾 Save Profile
+          </button>
+          {cityAuctionEnabled && (
+            card
+              ? <span className={`text-[11px] px-3 py-1.5 rounded-full font-semibold ${
+                  darkMode 
+                    ? 'bg-green-500/20 border border-green-500 text-green-400'
+                    : 'bg-green-50 border border-green-500 text-green-700'
+                }`}>
+                  ✓ Card on file
+                </span>
+              : <button 
+                  className={`rounded-xl px-4 py-2 text-xs font-semibold ${
+                    darkMode 
+                      ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white'
+                      : 'bg-black text-white hover:bg-gray-800'
+                  }`}
+                  onClick={saveCard}
+                >
+                  💳 Add Card
+                </button>
+          )}
+          {!cityAuctionEnabled && partnerCity && (
+            <span className={`text-[11px] ${darkMode ? 'text-purple-300' : 'text-gray-600'}`}>
+              Card not required in selection mode ({partnerCity})
+            </span>
+          )}
+        </div>
+        
+        {msg && <div className={`mt-3 text-xs font-semibold ${
+          darkMode ? 'text-green-400' : 'text-green-700'
+        }`}>{msg}</div>}
       </div>
+
+      {/* Bidding or Selection Mode - City-Based */}
+      {!partnerCity ? (
+        <div className={`rounded-2xl border-2 p-4 ${
+          darkMode 
+            ? 'border-yellow-500 bg-yellow-950/50'
+            : 'border-yellow-400 bg-yellow-50'
+        }`}>
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">⚠️</span>
+            <div>
+              <h3 className={`font-semibold text-sm mb-1 ${
+                darkMode ? 'text-yellow-300' : 'text-yellow-900'
+              }`}>
+                City Required
+              </h3>
+              <p className={`text-xs ${darkMode ? 'text-yellow-200' : 'text-gray-700'}`}>
+                Please enter your establishment address above to see available gnomes for your city.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : cityAuctionEnabled ? (
+        <div className={`rounded-2xl border-2 p-4 ${
+          darkMode 
+            ? 'neon-card-pink border-pink-500'
+            : 'border-purple-400 bg-gradient-to-br from-purple-50 to-pink-50'
+        }`}>
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-3xl">🔨</span>
+            <div className="flex-1">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h3 className={`font-semibold text-sm ${
+                  darkMode ? 'text-pink-300' : 'text-purple-900'
+                }`}>
+                  Bid for Gnomes — {partnerCity} Auction
+                </h3>
+                <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
+                  darkMode 
+                    ? 'bg-pink-500/30 border border-pink-400 text-pink-300'
+                    : 'bg-purple-100 border border-purple-300 text-purple-700'
+                }`}>
+                  🔨 Auction Mode
+                </span>
+              </div>
+              <p className={`text-xs mt-1 ${
+                darkMode ? 'text-purple-300' : 'text-purple-700'
+              }`}>
+                You're competing with other establishments in <strong>{partnerCity}</strong>. Highest bid wins each gnome!
+              </p>
+            </div>
+          </div>
+          
+          <div className="grid md:grid-cols-2 gap-3 text-xs mb-4">
+            <label className="grid gap-1">
+              <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>
+                Select Gnome
+              </span>
+              <select 
+                className={`border rounded px-3 py-2 ${
+                  darkMode 
+                    ? 'bg-slate-800 text-white border-pink-500'
+                    : ''
+                }`}
+                value={bidGnome} 
+                onChange={e=>setBidGnome(e.target.value)}
+              >
+                {window.GV.GNOMES.map(g=><option key={g.id} value={g.id}>#{g.id} {g.name}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1">
+              <span className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-700'}`}>
+                Your Bid (USD)
+              </span>
+              <input 
+                type="number" 
+                className={`border rounded px-3 py-2 ${
+                  darkMode 
+                    ? 'bg-slate-800 text-white border-pink-500'
+                    : ''
+                }`}
+                value={bid} 
+                onChange={e=>setBid(e.target.value)}
+              />
+            </label>
+          </div>
+          
+          <button 
+            className={`rounded-xl px-6 py-2.5 text-sm font-bold ${
+              darkMode 
+                ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-lg shadow-pink-500/50'
+                : 'bg-black text-white hover:bg-gray-800'
+            }`}
+            onClick={placeBid} 
+            disabled={!card}
+          >
+            💰 Place Bid
+          </button>
+
+          <div className="mt-4 grid md:grid-cols-2 gap-3">
+            {window.GV.GNOMES.map(g=>{
+              const {max,who}=highestFor(g.id);
+              const holder=window.__gnomeAssignments[g.id]?.partnerId;
+              const holderRec=(window.__partners||[]).find(p=>p.id===holder);
+              return (
+                <div key={g.id} className={`rounded-xl border p-3 ${
+                  darkMode 
+                    ? 'bg-slate-800/50 border-purple-500/30'
+                    : 'bg-white border-purple-200'
+                }`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <img src={g.image} className="w-8 h-8 object-contain float-gnome-sm" alt=""/>
+                    <div className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-900'}`}>
+                      #{g.id} {g.name}
+                    </div>
+                  </div>
+                  <div className={`text-[11px] mb-1 ${darkMode ? 'text-pink-300' : 'text-purple-700'}`}>
+                    💰 Top bid: <span className="font-mono font-bold">{window.GV.fmtMoney(max)}</span>
+                    {who && ` by ${who.establishment||who.name||'Partner'}`}
+                  </div>
+                  <div className={`text-[11px] ${darkMode ? 'text-purple-300' : 'text-gray-600'}`}>
+                    📍 Currently at: <span className="font-mono">{holderRec?.establishment||holderRec?.name||'—'}</span>
+                  </div>
+                  <div className={`text-[10px] ${darkMode ? 'text-purple-400' : 'text-gray-500'}`}>
+                    {holderRec?.address||'—'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       ) : (
-        <div className="rounded-2xl border p-3 bg-white">
-          <h3 className="font-semibold text-sm mb-2">Select Your Gnomes (Direct Selection Mode)</h3>
-          <p className="text-xs text-gray-600 mb-3">Click a gnome to claim it. No bidding required. First-come, first-served!</p>
+        <div className={`rounded-2xl border-2 p-4 ${
+          darkMode 
+            ? 'neon-card border-cyan-500'
+            : 'border-green-400 bg-gradient-to-br from-green-50 to-emerald-50'
+        }`}>
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-3xl">✨</span>
+            <div className="flex-1">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h3 className={`font-semibold text-sm ${
+                  darkMode ? 'text-cyan-300' : 'text-green-900'
+                }`}>
+                  Select Your Gnomes — {partnerCity}
+                </h3>
+                <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
+                  darkMode 
+                    ? 'bg-green-500/30 border border-green-400 text-green-300'
+                    : 'bg-green-100 border border-green-300 text-green-700'
+                }`}>
+                  ✓ Selection Mode
+                </span>
+              </div>
+              <p className={`text-xs mt-1 ${
+                darkMode ? 'text-cyan-200' : 'text-green-700'
+              }`}>
+                Click a gnome to claim it for <strong>{partnerCity}</strong>. No bidding required. First-come, first-served!
+              </p>
+            </div>
+          </div>
           
           {/* Warning if profile incomplete */}
           {(!est || !addr) && (
-            <div className="mb-4 p-3 rounded-lg border-2 border-yellow-400 bg-yellow-50">
+            <div className={`mb-4 p-3 rounded-lg border-2 ${
+              darkMode 
+                ? 'border-yellow-500 bg-yellow-950/50'
+                : 'border-yellow-400 bg-yellow-50'
+            }`}>
               <div className="flex items-start gap-2">
                 <span className="text-xl">⚠️</span>
                 <div className="flex-1">
-                  <p className="text-sm font-semibold text-yellow-900 mb-1">Complete Your Profile First</p>
-                  <p className="text-xs text-yellow-800">
+                  <p className={`text-sm font-semibold mb-1 ${
+                    darkMode ? 'text-yellow-300' : 'text-yellow-900'
+                  }`}>
+                    Complete Your Profile First
+                  </p>
+                  <p className={`text-xs ${darkMode ? 'text-yellow-200' : 'text-yellow-800'}`}>
                     Please fill in your <strong>Establishment Name</strong> and <strong>Address</strong> in the Partner Account section above before selecting gnomes.
                   </p>
                 </div>
@@ -2672,15 +5478,32 @@ function Partners({user}){
               const holderRec = (window.__partners||[]).find(p => p.id === holder);
               const isMine = holder === partnerRef.current?.id;
               const isAvailable = !holder;
-              const canClick = isMine || isAvailable;
+              
+              // Check if admin claimed in same city
+              const adminClaim = window.__adminClaimedGnomes[g.id];
+              const isAdminClaimedInMyCity = adminClaim && partnerCity && adminClaim.city === partnerCity;
+              
+              const canClick = !isAdminClaimedInMyCity && (isMine || isAvailable);
               
               return (
                 <div 
                   key={g.id} 
                   className={`rounded-xl border-2 p-3 text-center transition-all ${
-                    isMine ? 'border-green-500 bg-green-50 cursor-pointer' : 
-                    isAvailable ? 'border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50 cursor-pointer' : 
-                    'border-red-300 bg-red-50 opacity-60 cursor-not-allowed'
+                    darkMode 
+                      ? isAdminClaimedInMyCity
+                        ? 'border-orange-500/50 bg-orange-950/30 opacity-60 cursor-not-allowed'
+                        : isMine 
+                          ? 'border-green-500 bg-green-950/50 cursor-pointer' 
+                          : isAvailable 
+                            ? 'border-cyan-500/50 bg-slate-800/50 hover:border-cyan-400 hover:bg-cyan-950/50 cursor-pointer' 
+                            : 'border-red-500/30 bg-red-950/30 opacity-60 cursor-not-allowed'
+                      : isAdminClaimedInMyCity
+                        ? 'border-orange-500 bg-orange-50 opacity-60 cursor-not-allowed'
+                        : isMine 
+                          ? 'border-green-500 bg-green-50 cursor-pointer' 
+                          : isAvailable 
+                            ? 'border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50 cursor-pointer' 
+                            : 'border-red-300 bg-red-50 opacity-60 cursor-not-allowed'
                   }`} 
                   onClick={() => {
                     if (canClick) {
@@ -2688,18 +5511,45 @@ function Partners({user}){
                     }
                   }}
                 >
-                  <img src={g.image} alt={g.name} className="w-16 h-16 mx-auto mb-2" />
-                  <div className="text-xs font-semibold mb-1">#{g.id} {g.name}</div>
+                  <img src={g.image} alt={g.name} className="w-16 h-16 mx-auto mb-2 float-gnome-sm" />
+                  <div className={`text-xs font-semibold mb-1 ${
+                    darkMode ? 'text-cyan-300' : 'text-gray-900'
+                  }`}>
+                    #{g.id} {g.name}
+                  </div>
+                  {isAdminClaimedInMyCity && (
+                    <div className={`text-[10px] px-2 py-1 rounded-full ${
+                      darkMode ? 'bg-orange-900/50 text-orange-300' : 'bg-orange-200 text-orange-800'
+                    }`}>
+                      🏆 Admin Claimed<br/>{adminClaim.establishment}
+                    </div>
+                  )}
                   {isMine && (
-                    <div className="text-xs font-bold text-green-700 mb-1">✓ Your Gnome</div>
+                    <div className={`text-xs font-bold mb-1 ${
+                      darkMode ? 'text-green-400' : 'text-green-700'
+                    }`}>
+                      ✓ Your Gnome
+                    </div>
                   )}
                   {isAvailable && !isMine && (
-                    <div className="text-xs font-semibold text-blue-600">Available</div>
+                    <div className={`text-xs font-semibold ${
+                      darkMode ? 'text-cyan-400' : 'text-blue-600'
+                    }`}>
+                      Available
+                    </div>
                   )}
                   {!isAvailable && !isMine && (
                     <>
-                      <div className="text-xs font-semibold text-red-600 mb-1">Unavailable</div>
-                      <div className="text-[10px] text-gray-600">{holderRec?.establishment || holderRec?.name || 'Claimed'}</div>
+                      <div className={`text-xs font-semibold mb-1 ${
+                        darkMode ? 'text-red-400' : 'text-red-600'
+                      }`}>
+                        Unavailable
+                      </div>
+                      <div className={`text-[10px] ${
+                        darkMode ? 'text-purple-400' : 'text-gray-600'
+                      }`}>
+                        {holderRec?.establishment || holderRec?.name || 'Claimed'}
+                      </div>
                     </>
                   )}
                 </div>
@@ -2710,56 +5560,190 @@ function Partners({user}){
       )}
 
       {/* my winning gnomes + activate + hint push + submit trigger */}
-      <div className="rounded-2xl border p-3 bg-white">
-        <h3 className="font-semibold text-sm mb-2">Your Winning Gnomes</h3>
-        <div className="text-[11px] text-gray-600 mb-2">Activate a gnome when it's hidden. Submit a trigger image for Admin to approve.</div>
-        <div className="grid md:grid-cols-2 gap-2 text-xs">
-          {myWins.length===0 && <div className="text-gray-500">No assigned gnomes yet.</div>}
-          {myWins.map(({gnome,active,prev})=>(
-            <div key={gnome.id} className="rounded border p-2">
-              <div className="flex items-center gap-2">
-                <img src={gnome.image} className="w-5 h-5 object-contain" alt=""/><div className="font-semibold">#{gnome.id} {gnome.name}</div>
-                <span className="ml-auto"><window.Components.ActiveBadge active={active}/></span>
-              </div>
-              <div className="mt-1 text-[11px] text-gray-600">Previous holder: <span className="font-mono">{prev?.establishment||prev?.name||'—'}</span></div>
-              <div className="text-[11px] text-gray-500">Pickup: <span className="font-mono">{prev?.address||'—'}</span></div>
-              <div className="mt-2 flex items-center gap-2">
-                <button className="rounded border px-2 py-1" onClick={()=>toggleActivate(gnome.id)}>{active?'Deactivate':'Activate'}</button>
-                <input className="border rounded px-2 py-1 flex-1" placeholder="Manual clue to push" value={hintText} onChange={e=>setHintText(e.target.value)}/>
-                <input type="number" className="border rounded px-2 py-1 w-24" value={hintMinutes} onChange={e=>setHintMinutes(e.target.value)}/>
-                <button className="rounded bg-black text-white px-2 py-1" onClick={()=>pushHint(gnome.id)}>Push Hint</button>
-              </div>
-            </div>
-          ))}
+      <div className={`rounded-2xl border-2 p-4 ${
+        darkMode 
+          ? 'neon-card-purple border-purple-500'
+          : 'border-indigo-400 bg-gradient-to-br from-indigo-50 to-purple-50'
+      }`}>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">🎯</span>
+          <div className="flex-1">
+            <h3 className={`font-semibold text-sm ${
+              darkMode ? 'text-cyan-300' : 'text-indigo-900'
+            }`}>
+              Gnome Management
+            </h3>
+            <p className={`text-xs ${
+              darkMode ? 'text-purple-300' : 'text-indigo-700'
+            }`}>
+              Activate gnomes when hidden. Upload trigger images for Admin approval. Push manual hints to participants.
+            </p>
+          </div>
         </div>
+        
+        {myWins.length===0 ? (
+          <div className={`text-center py-8 ${
+            darkMode ? 'text-purple-400' : 'text-gray-500'
+          }`}>
+            <span className="text-4xl mb-2 block">🔍</span>
+            <p className="text-sm font-semibold">No assigned gnomes yet</p>
+            <p className="text-xs mt-1">
+              {cityAuctionEnabled 
+                ? 'Place a winning bid to get started!' 
+                : 'Select available gnomes above to begin'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-2 gap-3 text-xs">
+            {myWins.map(({gnome,active,prev})=>(
+              <div key={gnome.id} className={`rounded-xl border p-3 ${
+                darkMode 
+                  ? 'bg-slate-800/50 border-purple-500/30'
+                  : 'bg-white border-indigo-200'
+              }`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <img src={gnome.image} className="w-8 h-8 object-contain float-gnome-sm" alt=""/>
+                  <div className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-900'}`}>
+                    #{gnome.id} {gnome.name}
+                  </div>
+                  <span className="ml-auto"><window.Components.ActiveBadge active={active}/></span>
+                </div>
+                
+                <div className={`text-[11px] mb-1 ${darkMode ? 'text-purple-300' : 'text-gray-600'}`}>
+                  📍 Previous holder: <span className="font-mono">{prev?.establishment||prev?.name||'—'}</span>
+                </div>
+                <div className={`text-[10px] mb-3 ${darkMode ? 'text-purple-400' : 'text-gray-500'}`}>
+                  Pickup: <span className="font-mono">{prev?.address||'—'}</span>
+                </div>
+                
+                <div className="space-y-2">
+                  <button 
+                    className={`w-full rounded-lg px-3 py-2 text-xs font-semibold ${
+                      active 
+                        ? darkMode 
+                          ? 'bg-red-500/20 border border-red-500 text-red-400'
+                          : 'bg-red-50 border border-red-500 text-red-700'
+                        : darkMode 
+                          ? 'bg-green-500/20 border border-green-500 text-green-400'
+                          : 'bg-green-50 border border-green-500 text-green-700'
+                    }`}
+                    onClick={()=>toggleActivate(gnome.id)}
+                  >
+                    {active ? '⏸️ Deactivate' : '▶️ Activate'}
+                  </button>
+                  
+                  <div className="flex gap-2">
+                    <input 
+                      className={`border rounded px-2 py-1.5 flex-1 text-xs ${
+                        darkMode 
+                          ? 'bg-slate-800 text-white border-cyan-500'
+                          : ''
+                      }`}
+                      placeholder="Manual clue to push" 
+                      value={hintText} 
+                      onChange={e=>setHintText(e.target.value)}
+                    />
+                    <input 
+                      type="number" 
+                      className={`border rounded px-2 py-1.5 w-16 text-xs ${
+                        darkMode 
+                          ? 'bg-slate-800 text-white border-cyan-500'
+                          : ''
+                      }`}
+                      placeholder="min"
+                      value={hintMinutes} 
+                      onChange={e=>setHintMinutes(e.target.value)}
+                    />
+                  </div>
+                  
+                  <button 
+                    className={`w-full rounded-lg px-3 py-2 text-xs font-semibold ${
+                      darkMode 
+                        ? 'bg-gradient-to-r from-cyan-500 to-purple-600 text-white'
+                        : 'bg-black text-white hover:bg-gray-800'
+                    }`}
+                    onClick={()=>pushHint(gnome.id)}
+                  >
+                    📣 Push Hint
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
-        <div className="mt-4 space-y-3">
-          <div className="font-semibold text-xs">Submit Trigger Images to Admin</div>
-          {myWins.length === 0 && <div className="text-gray-500 text-xs">No assigned gnomes yet.</div>}
-          {myWins.map(({gnome}) => (
-            <div key={gnome.id} className="rounded border p-2 text-xs">
-              <div className="flex items-center gap-2 mb-2">
-                <img src={gnome.image} className="w-5 h-5 object-contain" alt=""/>
-                <div className="font-semibold">#{gnome.id} {gnome.name}</div>
-              </div>
-              <div className="flex gap-2 items-end">
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  className="border rounded px-2 py-1 flex-1" 
-                  onChange={e => setUploadFiles({...uploadFiles, [gnome.id]: e.target.files?.[0]||null})}
-                />
-                <button 
-                  className="rounded bg-black text-white px-3 py-1.5" 
-                  onClick={() => submitTriggerImage(gnome.id)}
-                  disabled={!uploadFiles[gnome.id]}
-                >
-                  Submit Image
-                </button>
+        {myWins.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-purple-500/30">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-2xl">📸</span>
+              <div className={`font-semibold text-xs ${darkMode ? 'text-cyan-300' : 'text-indigo-900'}`}>
+                Submit Trigger Images to Admin
               </div>
             </div>
-          ))}
-        </div>
+            <div className="space-y-3">
+              {myWins.map(({gnome}) => {
+                const existingTrigger = window.__triggerImages[gnome.id];
+                const isBlocked = existingTrigger?.blocked;
+                
+                return (
+                  <div key={gnome.id} className={`rounded-xl border p-3 text-xs ${
+                    isBlocked
+                      ? darkMode 
+                        ? 'bg-red-950/50 border-red-500'
+                        : 'bg-red-50 border-red-500'
+                      : darkMode 
+                        ? 'bg-slate-800/50 border-purple-500/30'
+                        : 'bg-white border-indigo-200'
+                  }`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <img src={gnome.image} className="w-6 h-6 object-contain float-gnome-sm" alt=""/>
+                      <div className={`font-semibold ${darkMode ? 'text-cyan-300' : 'text-gray-900'}`}>
+                        #{gnome.id} {gnome.name}
+                      </div>
+                      {isBlocked && (
+                        <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                          darkMode 
+                            ? 'bg-red-500/30 border border-red-500 text-red-400'
+                            : 'bg-red-100 border border-red-500 text-red-700'
+                        }`}>
+                          ⚠️ BLOCKED
+                        </span>
+                      )}
+                    </div>
+                    {isBlocked && (
+                      <p className={`text-[11px] mb-2 ${darkMode ? 'text-red-300' : 'text-red-700'}`}>
+                        Current trigger image was blocked by Admin. Upload a new image immediately!
+                      </p>
+                    )}
+                    <div className="flex gap-2 items-end">
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        className={`border rounded px-2 py-1.5 flex-1 text-xs ${
+                          darkMode 
+                            ? 'bg-slate-800 text-white border-cyan-500'
+                            : ''
+                        }`}
+                        onChange={e => setUploadFiles({...uploadFiles, [gnome.id]: e.target.files?.[0]||null})}
+                      />
+                      <button 
+                        className={`rounded-lg px-4 py-1.5 font-semibold text-xs ${
+                          darkMode 
+                            ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white'
+                            : 'bg-black text-white hover:bg-gray-800'
+                        }`}
+                        onClick={() => submitTriggerImage(gnome.id)}
+                        disabled={!uploadFiles[gnome.id]}
+                      >
+                        📤 Submit
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       <window.Components.PopularityGrid title="Gnome Popularity — Last 30 Days" showActive={true}/>
@@ -2781,7 +5765,7 @@ function Partners({user}){
 /* =============================================================================
    ADMIN COMPONENT
 ============================================================================= */
-function Admin({user}) {
+function Admin({user, darkMode, setDarkMode}) {
   const [cost,setCost]=useState(window.__costPerUnlock||1);
   const [goldenDate,setGoldenDate]=useState("");
   const [goldenHours,setGoldenHours]=useState(2);
@@ -2796,46 +5780,55 @@ function Admin({user}) {
   const [cEnd,setCEnd]=useState("");
   const [cCap,setCCap]=useState(0);
   const [cActive,setCActive]=useState(true);
+  const [, forceUpdate] = useState({});
+  
+  // Gnome claiming states
+  const [claimingGnome, setClaimingGnome] = useState(null);
+  const [claimEstablishment, setClaimEstablishment] = useState("");
+  const [claimAddress, setClaimAddress] = useState("");
+  const [claimCity, setClaimCity] = useState("");
+  const [claimImage, setClaimImage] = useState(null);
+  const [claimImagePreview, setClaimImagePreview] = useState("");
+
+  // Get all unique cities from partner addresses
+  const allCities = useMemo(() => {
+    const cities = new Set();
+    (window.__partners || []).forEach(p => {
+      if (p.address) {
+        const parts = p.address.split(',');
+        if (parts.length >= 2) {
+          const city = parts[parts.length - 2].trim();
+          cities.add(city);
+        }
+      }
+    });
+    return Array.from(cities).sort();
+  }, [window.__partners?.length]);
 
   function setCostPerUnlock(){
     window.__costPerUnlock = Number(cost)||0;
     setMsg("Updated advertiser cost-per-unlock.");
   }
   
-  function toggleAuctionMode(){
+  function toggleCityAuctionMode(city){
+    const wasEnabled = window.__auctionEnabledByCity[city] || false;
+    const newState = !wasEnabled;
+    
     window.GV.performAction(async () => {
-      const wasEnabled = window.__auctionEnabled;
-      window.__auctionEnabled = !window.__auctionEnabled;
-      
-      // If switching TO selection mode, offer to clear all assignments
-      if (wasEnabled && !window.__auctionEnabled) {
-        const hasAssignments = Object.values(window.__gnomeAssignments).some(a => a.partnerId !== null);
-        if (hasAssignments) {
-          const shouldClear = confirm(
-            "You're switching to Selection Mode. Do you want to CLEAR all current gnome assignments so partners can select freely?\n\n" +
-            "Click OK to clear all assignments (recommended)\n" +
-            "Click Cancel to keep existing assignments"
-          );
-          
-          if (shouldClear) {
-            window.GV.GNOMES.forEach(g => {
-              window.__gnomeAssignments[g.id] = {
-                partnerId: null,
-                active: false,
-                previousPartnerId: window.__gnomeAssignments[g.id]?.partnerId || null
-              };
-            });
-            setMsg(`Auction mode DISABLED and all gnome assignments cleared. Partners can now select gnomes freely.`);
-          } else {
-            setMsg(`Auction mode DISABLED but existing assignments kept. Partners can only claim unassigned gnomes.`);
-          }
-        } else {
-          setMsg(`Auction mode DISABLED. Partners can now select gnomes directly (no card required).`);
-        }
-      } else {
-        setMsg(`Auction mode ${window.__auctionEnabled ? 'ENABLED' : 'DISABLED'}. Partners ${window.__auctionEnabled ? 'must bid' : 'can select gnomes directly'}.`);
-      }
-    }, window.__auctionEnabled ? "Auction Mode Enabled!" : "Selection Mode Enabled!");
+      window.__auctionEnabledByCity[city] = newState;
+      setMsg(`Auction mode ${newState ? 'ENABLED' : 'DISABLED'} for ${city}. Partners in ${city} ${newState ? 'must bid' : 'can select gnomes directly'}.`);
+      forceUpdate({});
+    }, newState ? `Auction Enabled for ${city}!` : `Selection Mode for ${city}!`);
+  }
+  
+  function toggleAllCitiesAuctionMode(enable){
+    window.GV.performAction(async () => {
+      allCities.forEach(city => {
+        window.__auctionEnabledByCity[city] = enable;
+      });
+      setMsg(`Auction mode ${enable ? 'ENABLED' : 'DISABLED'} for all cities.`);
+      forceUpdate({});
+    }, enable ? "Auction Enabled for All Cities!" : "Selection Mode for All Cities!");
   }
   
   function toggleAdvertiserFreeAds(advertiser){
@@ -2950,78 +5943,443 @@ function Admin({user}) {
       });
     }, "Trigger Updated!");
   }
+  
+  // Initialize admin claimed gnomes storage
+  if (!window.__adminClaimedGnomes) {
+    window.__adminClaimedGnomes = {}; // { gnomeId: { establishment, address, city, imageDataUrl, ts } }
+  }
+  
+  function openClaimModal(gnomeId) {
+    setClaimingGnome(gnomeId);
+    setClaimEstablishment("");
+    setClaimAddress("");
+    setClaimCity("");
+    setClaimImage(null);
+    setClaimImagePreview("");
+  }
+  
+  function closeClaimModal() {
+    setClaimingGnome(null);
+    setClaimEstablishment("");
+    setClaimAddress("");
+    setClaimCity("");
+    setClaimImage(null);
+    setClaimImagePreview("");
+  }
+  
+  function handleClaimImageUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setClaimImage(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setClaimImagePreview(ev.target.result);
+    };
+    reader.readAsDataURL(file);
+  }
+  
+  function submitGnomeClaim() {
+    if (!claimingGnome) return;
+    if (!claimEstablishment || !claimAddress || !claimCity || !claimImage) {
+      alert("Please fill in all fields and upload an image.");
+      return;
+    }
+    
+    window.GV.performAction(async () => {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const imageDataUrl = e.target.result;
+          
+          // Store the claim
+          window.__adminClaimedGnomes[claimingGnome] = {
+            establishment: claimEstablishment,
+            address: claimAddress,
+            city: claimCity,
+            imageDataUrl: imageDataUrl,
+            ts: Date.now()
+          };
+          
+          // Also update the assignment to mark as admin-claimed
+          if (!window.__gnomeAssignments[claimingGnome]) {
+            window.__gnomeAssignments[claimingGnome] = {};
+          }
+          window.__gnomeAssignments[claimingGnome].adminClaimed = true;
+          window.__gnomeAssignments[claimingGnome].claimedCity = claimCity;
+          
+          setMsg(`Gnome #${claimingGnome} claimed for ${claimEstablishment} in ${claimCity}. Partners in ${claimCity} can no longer claim this gnome.`);
+          closeClaimModal();
+          resolve();
+        };
+        reader.readAsDataURL(claimImage);
+      });
+    }, "Gnome Claimed Successfully!");
+  }
+  
+  function releaseGnomeClaim(gnomeId) {
+    if (!confirm(`Release gnome #${gnomeId} and make it available to partners again?`)) return;
+    
+    window.GV.performAction(async () => {
+      const claim = window.__adminClaimedGnomes[gnomeId];
+      delete window.__adminClaimedGnomes[gnomeId];
+      
+      if (window.__gnomeAssignments[gnomeId]) {
+        delete window.__gnomeAssignments[gnomeId].adminClaimed;
+        delete window.__gnomeAssignments[gnomeId].claimedCity;
+      }
+      
+      setMsg(`Gnome #${gnomeId} released from ${claim?.establishment || 'admin claim'}. Partners can now claim it.`);
+      forceUpdate({});
+    }, "Gnome Released!");
+  }
 
   const coupons=window.__coupons||[];
   const advertisers=window.__advertisers||[];
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border p-3 bg-white">
+      <div className="rounded-2xl border p-3 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm">Admin Controls</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-sm">Admin Controls</h3>
+            <window.Components.CycleBadge />
+          </div>
           <div className="text-[11px] text-gray-600">Logged in: <span className="font-mono">{user?.email||'—'}</span></div>
         </div>
-        <div className="text-xs grid md:grid-cols-3 gap-3 mt-3">
+        <div className="text-xs grid md:grid-cols-2 gap-3 mt-3">
           <label className="grid gap-1">Cost per unlock (advertiser)
             <input type="number" className="border rounded px-2 py-1" value={cost} onChange={e=>setCost(e.target.value)}/>
           </label>
           <div className="flex items-end">
             <button className="rounded bg-black text-white px-3 py-1.5 text-sm" onClick={setCostPerUnlock}>Update Cost</button>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input 
-                type="checkbox" 
-                checked={window.__auctionEnabled} 
-                onChange={toggleAuctionMode}
-                className="w-4 h-4"
-              />
-              <span className="text-xs font-semibold">Auction Mode {window.__auctionEnabled ? 'ON' : 'OFF'}</span>
-            </label>
-          </div>
         </div>
-        <div className="mt-2 text-[11px] text-gray-600">
-          {window.__auctionEnabled ? 
-            '✓ Partners must bid and win gnomes (card required)' : 
-            '✓ Partners can select gnomes directly (no card required)'}
-        </div>
-        
-        {/* Reset Assignments Button (useful for selection mode) */}
-        {!window.__auctionEnabled && (
-          <div className="mt-3 p-3 rounded-lg border border-orange-300 bg-orange-50">
-            <div className="flex items-center justify-between">
-              <div className="flex-1 mr-3">
-                <p className="text-xs font-semibold text-orange-900 mb-1">Reset Gnome Assignments</p>
-                <p className="text-[11px] text-orange-700">
-                  Clear all current assignments to let partners select freely. Useful when switching to selection mode.
-                </p>
-              </div>
-              <button 
-                className="rounded bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 text-xs font-semibold whitespace-nowrap"
-                onClick={() => {
-                  if (confirm('Are you sure you want to CLEAR ALL gnome assignments? This cannot be undone.')) {
-                    window.GV.performAction(async () => {
-                      window.GV.GNOMES.forEach(g => {
-                        window.__gnomeAssignments[g.id] = {
-                          partnerId: null,
-                          active: false,
-                          previousPartnerId: window.__gnomeAssignments[g.id]?.partnerId || null
-                        };
-                      });
-                      setMsg('All gnome assignments have been cleared. Partners can now select freely.');
-                    }, 'Assignments Cleared!');
-                  }
-                }}
-              >
-                🔄 Clear All Assignments
-              </button>
-            </div>
-          </div>
-        )}
         
         {msg && <div className="mt-2 text-xs text-green-700">{msg}</div>}
       </div>
       
+      {/* Dark Mode Toggle */}
+      <div className="rounded-2xl border-2 border-indigo-400 bg-gradient-to-r from-indigo-50 to-purple-50 p-4">
+        <div className="flex items-center gap-3">
+          <span className="text-3xl">{darkMode ? '🌙' : '☀️'}</span>
+          <div className="flex-1">
+            <h3 className="font-semibold text-sm text-indigo-900 mb-1">App Theme</h3>
+            <p className="text-xs text-indigo-700">
+              Toggle between light and dark mode to see which theme makes the app pop more with color and depth.
+            </p>
+          </div>
+          <button
+            className={`rounded-xl px-6 py-3 text-sm font-bold transition-all ${
+              darkMode 
+                ? 'bg-gradient-to-r from-gray-700 to-gray-900 text-white hover:from-gray-800 hover:to-black' 
+                : 'bg-gradient-to-r from-yellow-400 to-orange-500 text-white hover:from-yellow-500 hover:to-orange-600'
+            }`}
+            onClick={() => setDarkMode(!darkMode)}
+          >
+            {darkMode ? '🌙 Dark Mode ON' : '☀️ Light Mode ON'}
+          </button>
+        </div>
+      </div>
+      
+      {/* Admin Gnome Claiming Section */}
+      <div className="rounded-2xl border-2 border-orange-400 bg-gradient-to-r from-orange-50 to-yellow-50 p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">🏆</span>
+          <div className="flex-1">
+            <h3 className="font-semibold text-sm text-orange-900 mb-1">Claim Gnomes for Establishments</h3>
+            <p className="text-xs text-orange-700">
+              As admin, you can claim gnomes on behalf of establishments. Once claimed, partners in that city cannot claim these gnomes.
+            </p>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {window.GV.GNOMES.map(gnome => {
+            const claim = window.__adminClaimedGnomes[gnome.id];
+            const isClaimed = !!claim;
+            
+            return (
+              <div key={gnome.id} className={`relative rounded-lg border-2 p-3 ${
+                isClaimed 
+                  ? 'bg-green-100 border-green-500' 
+                  : 'bg-white border-orange-300 hover:border-orange-500'
+              }`}>
+                <img 
+                  src={gnome.image} 
+                  alt={gnome.name}
+                  className="w-full h-24 object-contain mb-2"
+                />
+                <div className="text-center">
+                  <div className="text-xs font-bold text-gray-900 mb-1">
+                    #{gnome.id} {gnome.name}
+                  </div>
+                  
+                  {isClaimed ? (
+                    <div className="space-y-2">
+                      <div className="text-[10px] text-green-800 font-semibold">
+                        ✓ CLAIMED
+                      </div>
+                      <div className="text-[10px] text-gray-700">
+                        {claim.establishment}
+                      </div>
+                      <div className="text-[9px] text-gray-600">
+                        📍 {claim.city}
+                      </div>
+                      {claim.imageDataUrl && (
+                        <img 
+                          src={claim.imageDataUrl} 
+                          alt="Location"
+                          className="w-full h-16 object-cover rounded border"
+                        />
+                      )}
+                      <button
+                        className="w-full rounded bg-red-600 hover:bg-red-700 text-white px-2 py-1 text-[10px] font-semibold"
+                        onClick={() => releaseGnomeClaim(gnome.id)}
+                      >
+                        Release
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="w-full rounded bg-orange-600 hover:bg-orange-700 text-white px-2 py-1.5 text-xs font-semibold"
+                      onClick={() => openClaimModal(gnome.id)}
+                    >
+                      Claim
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      
+      {/* Claim Modal */}
+      {claimingGnome && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-gradient-to-r from-orange-600 to-red-600 text-white px-6 py-4 rounded-t-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">
+                  Claim Gnome #{claimingGnome}
+                </h3>
+                <button 
+                  onClick={closeClaimModal}
+                  className="text-white hover:text-gray-200 text-2xl font-bold"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="text-center mb-4">
+                <img 
+                  src={window.GV.GNOMES.find(g => g.id === claimingGnome)?.image}
+                  alt="Gnome"
+                  className="w-32 h-32 object-contain mx-auto"
+                />
+                <div className="text-xl font-bold text-gray-900 mt-2">
+                  {window.GV.GNOMES.find(g => g.id === claimingGnome)?.name}
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Establishment Name *
+                </label>
+                <input
+                  type="text"
+                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2 focus:border-orange-500 focus:outline-none"
+                  placeholder="e.g., Beach Bar & Grill"
+                  value={claimEstablishment}
+                  onChange={(e) => setClaimEstablishment(e.target.value)}
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  City *
+                </label>
+                <input
+                  type="text"
+                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2 focus:border-orange-500 focus:outline-none"
+                  placeholder="e.g., Clearwater"
+                  value={claimCity}
+                  onChange={(e) => setClaimCity(e.target.value)}
+                />
+                <div className="text-xs text-gray-500 mt-1">
+                  Partners in this city won't be able to claim this gnome
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Full Address *
+                </label>
+                <input
+                  type="text"
+                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2 focus:border-orange-500 focus:outline-none"
+                  placeholder="e.g., 123 Beach Ave, Clearwater, FL 33767"
+                  value={claimAddress}
+                  onChange={(e) => setClaimAddress(e.target.value)}
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Upload Image *
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2 focus:border-orange-500 focus:outline-none"
+                  onChange={handleClaimImageUpload}
+                />
+                {claimImagePreview && (
+                  <div className="mt-3">
+                    <img 
+                      src={claimImagePreview}
+                      alt="Preview"
+                      className="w-full h-48 object-cover rounded-lg border-2 border-gray-300"
+                    />
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex gap-3 pt-4">
+                <button
+                  className="flex-1 rounded-lg bg-gray-300 hover:bg-gray-400 text-gray-800 px-6 py-3 font-semibold"
+                  onClick={closeClaimModal}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="flex-1 rounded-lg bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 text-white px-6 py-3 font-semibold"
+                  onClick={submitGnomeClaim}
+                >
+                  Claim Gnome
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* City-Based Auction Mode Controls */}
+      <div className="rounded-2xl border-2 border-blue-400 bg-blue-50 p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">🏙️</span>
+          <div className="flex-1">
+            <h3 className="font-semibold text-sm text-blue-900 mb-1">City Auction Mode Controls</h3>
+            <p className="text-xs text-blue-700">
+              Toggle auction mode per city. When enabled, partners must bid for gnomes. When disabled, partners can select gnomes directly.
+            </p>
+          </div>
+        </div>
+        
+        {/* Global toggle buttons */}
+        <div className="mb-4 flex gap-2">
+          <button
+            className="rounded bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 text-sm font-semibold"
+            onClick={() => toggleAllCitiesAuctionMode(true)}
+          >
+            🔨 Enable Auction for All Cities
+          </button>
+          <button
+            className="rounded bg-green-600 hover:bg-green-700 text-white px-4 py-2 text-sm font-semibold"
+            onClick={() => toggleAllCitiesAuctionMode(false)}
+          >
+            ✓ Enable Selection for All Cities
+          </button>
+        </div>
+        
+        {/* Per-city controls */}
+        {allCities.length === 0 ? (
+          <div className="text-xs text-gray-600 p-3 bg-white rounded-lg border">
+            No cities yet. Cities will appear here once partners register with addresses.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {allCities.map(city => {
+              const isAuctionEnabled = window.__auctionEnabledByCity[city] || false;
+              const partnersInCity = (window.__partners || []).filter(p => {
+                if (!p.address) return false;
+                const parts = p.address.split(',');
+                const partnerCity = parts.length >= 2 ? parts[parts.length - 2].trim() : null;
+                return partnerCity === city;
+              });
+              
+              return (
+                <div key={city} className="bg-white rounded-lg border border-blue-300 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="font-semibold text-sm text-gray-900 mb-1">
+                        📍 {city}
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        {partnersInCity.length} partner{partnersInCity.length !== 1 ? 's' : ''} registered
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-xs px-3 py-1 rounded-full font-semibold ${
+                        isAuctionEnabled 
+                          ? 'bg-purple-100 border border-purple-400 text-purple-800' 
+                          : 'bg-green-100 border border-green-400 text-green-800'
+                      }`}>
+                        {isAuctionEnabled ? '🔨 Auction Mode' : '✓ Selection Mode'}
+                      </span>
+                      <button
+                        className={`rounded px-4 py-1.5 text-sm font-semibold transition-colors ${
+                          isAuctionEnabled
+                            ? 'bg-green-600 hover:bg-green-700 text-white'
+                            : 'bg-purple-600 hover:bg-purple-700 text-white'
+                        }`}
+                        onClick={() => toggleCityAuctionMode(city)}
+                      >
+                        Switch to {isAuctionEnabled ? 'Selection' : 'Auction'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      
+      {/* Reset Assignments Button */}
+      <div className="rounded-2xl border p-3 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white">
+        <div className="flex items-center justify-between">
+          <div className="flex-1 mr-3">
+            <h3 className="text-sm font-semibold text-gray-900 mb-1">Reset Gnome Assignments</h3>
+            <p className="text-xs text-gray-600">
+              Clear all current gnome assignments to let partners select/bid freely. Useful when changing modes or starting fresh.
+            </p>
+          </div>
+          <button 
+            className="rounded bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 text-sm font-semibold whitespace-nowrap"
+            onClick={() => {
+              if (confirm('Are you sure you want to CLEAR ALL gnome assignments? This cannot be undone.')) {
+                window.GV.performAction(async () => {
+                  window.GV.GNOMES.forEach(g => {
+                    window.__gnomeAssignments[g.id] = {
+                      partnerId: null,
+                      active: false,
+                      previousPartnerId: window.__gnomeAssignments[g.id]?.partnerId || null
+                    };
+                  });
+                  setMsg('All gnome assignments have been cleared. Partners can now select freely.');
+                }, 'Assignments Cleared!');
+              }
+            }}
+          >
+            🔄 Clear All Assignments
+          </button>
+        </div>
+      </div>
+
       {/* Cycle Management */}
       <div className="rounded-2xl border-2 border-purple-400 bg-gradient-to-br from-purple-50 to-pink-50 p-4">
         <div className="flex items-center gap-3 mb-3">
@@ -3036,8 +6394,12 @@ function Admin({user}) {
         </div>
         
         <div className="bg-white rounded-lg border border-purple-300 p-3">
-          <div className="text-xs text-gray-600 mb-2">
-            Current Cycle: <span className="font-mono font-semibold text-purple-900">{window.GV.getCycleId()}</span>
+          <div className={`text-xs mb-2 ${
+            darkMode ? 'text-gray-300' : 'text-gray-600'
+          }`}>
+            Current Cycle: <span className={`font-mono font-semibold ${
+              darkMode ? 'text-purple-300' : 'text-purple-900'
+            }`}>{window.GV.getCycleId()}</span>
           </div>
           
           <div className="flex items-center gap-2">
@@ -3068,6 +6430,68 @@ function Admin({user}) {
           </div>
         </div>
       </div>
+
+      {/* Push Bonus Spins */}
+      <div className="rounded-2xl border-2 border-emerald-400 bg-gradient-to-br from-emerald-50 to-teal-50 p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">🎰</span>
+          <div className="flex-1">
+            <h3 className="font-semibold text-sm text-emerald-900 mb-1">Push Free Bonus Spins Campaign</h3>
+            <p className="text-xs text-emerald-700">
+              Grant free slot machine spins to ALL participants with a time limit. They'll see a banner, countdown timer, and animated button!
+            </p>
+          </div>
+        </div>
+        
+        <div className="bg-white rounded-lg border border-emerald-300 p-3">
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className="text-xs text-gray-600 mb-1 block">Number of Spins</label>
+              <input 
+                type="number"
+                min="1"
+                max="100"
+                defaultValue="3"
+                id="bonusSpinCount" 
+                className="w-full rounded border border-emerald-300 px-3 py-1.5 text-sm text-center font-bold" 
+                placeholder="3"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600 mb-1 block">Duration (hours)</label>
+              <input 
+                type="number"
+                min="1"
+                max="168"
+                defaultValue="24"
+                id="bonusSpinDuration" 
+                className="w-full rounded border border-emerald-300 px-3 py-1.5 text-sm text-center font-bold" 
+                placeholder="24"
+              />
+            </div>
+          </div>
+          
+          <button
+            className="w-full rounded bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 text-sm font-semibold"
+            onClick={()=>{
+              const spinCount = Number(document.getElementById('bonusSpinCount')?.value) || 3;
+              const durationHours = Number(document.getElementById('bonusSpinDuration')?.value) || 24;
+              if (confirm(`Push ${spinCount} FREE bonus spin${spinCount > 1 ? 's' : ''} to ALL participants?\n\nCampaign Duration: ${durationHours} hour${durationHours > 1 ? 's' : ''}`)) {
+                window.GV.performAction(async () => {
+                  window.GV.pushBonusSpinsCampaign(spinCount, durationHours);
+                  setMsg(`Pushed ${spinCount} bonus spin${spinCount > 1 ? 's' : ''} campaign for ${durationHours} hours!`);
+                }, `${spinCount} Bonus Spins Campaign Started!`);
+              }
+            }}
+          >
+            🎁 Launch Bonus Spins Campaign
+          </button>
+          
+          <div className="text-[11px] text-gray-500 mt-2">
+            💡 Participants will see a banner with countdown timer and animated "Gnome Bonus!" button during the campaign
+          </div>
+        </div>
+      </div>
       
       {/* Financial Ledger */}
       <div className="rounded-2xl border-2 border-green-400 bg-gradient-to-br from-green-50 to-emerald-50 p-4">
@@ -3075,7 +6499,7 @@ function Admin({user}) {
           <span className="text-3xl">💰</span>
           <div className="flex-1">
             <h3 className="font-semibold text-sm text-green-900 mb-1">Financial Ledger</h3>
-            <p className="text-xs text-green-700">Revenue breakdown by partners and advertisers</p>
+            <p className="text-xs text-green-700">Revenue breakdown with hierarchical drill-down by city → establishment/advertiser</p>
           </div>
         </div>
         
@@ -3087,6 +6511,87 @@ function Admin({user}) {
           const totalPartner = partnerCharges.reduce((sum, c) => sum + (c.amount || 0), 0);
           const totalAdvertiser = advertiserCharges.reduce((sum, c) => sum + (c.amount || 0), 0);
           const grandTotal = totalPartner + totalAdvertiser;
+          
+          // Group charges by city
+          const chargesByCity = {};
+          
+          // Process partner charges
+          partnerCharges.forEach(charge => {
+            const partner = (window.__partners || []).find(p => p.id === charge.partnerId);
+            if (!partner || !partner.address) return;
+            
+            const parts = partner.address.split(',');
+            const city = parts.length >= 2 ? parts[parts.length - 2].trim() : 'Unknown City';
+            
+            if (!chargesByCity[city]) {
+              chargesByCity[city] = {
+                total: 0,
+                partnerTotal: 0,
+                advertiserTotal: 0,
+                partners: {},
+                advertisers: {}
+              };
+            }
+            
+            chargesByCity[city].total += charge.amount || 0;
+            chargesByCity[city].partnerTotal += charge.amount || 0;
+            
+            if (!chargesByCity[city].partners[partner.id]) {
+              chargesByCity[city].partners[partner.id] = {
+                partner,
+                charges: [],
+                total: 0
+              };
+            }
+            
+            chargesByCity[city].partners[partner.id].charges.push(charge);
+            chargesByCity[city].partners[partner.id].total += charge.amount || 0;
+          });
+          
+          // Process advertiser charges (link to partner gnome location)
+          advertiserCharges.forEach(charge => {
+            const advertiser = (window.__advertisers || []).find(a => a.id === charge.advertiserId);
+            if (!advertiser) return;
+            
+            // Find the gnome and its partner to determine city
+            let city = 'Unknown City';
+            if (charge.gnomeId) {
+              const assignment = window.__gnomeAssignments[charge.gnomeId];
+              if (assignment) {
+                const partner = (window.__partners || []).find(p => p.id === assignment.partnerId);
+                if (partner && partner.address) {
+                  const parts = partner.address.split(',');
+                  city = parts.length >= 2 ? parts[parts.length - 2].trim() : 'Unknown City';
+                }
+              }
+            }
+            
+            if (!chargesByCity[city]) {
+              chargesByCity[city] = {
+                total: 0,
+                partnerTotal: 0,
+                advertiserTotal: 0,
+                partners: {},
+                advertisers: {}
+              };
+            }
+            
+            chargesByCity[city].total += charge.amount || 0;
+            chargesByCity[city].advertiserTotal += charge.amount || 0;
+            
+            if (!chargesByCity[city].advertisers[advertiser.id]) {
+              chargesByCity[city].advertisers[advertiser.id] = {
+                advertiser,
+                charges: [],
+                total: 0
+              };
+            }
+            
+            chargesByCity[city].advertisers[advertiser.id].charges.push(charge);
+            chargesByCity[city].advertisers[advertiser.id].total += charge.amount || 0;
+          });
+          
+          const cities = Object.keys(chargesByCity).sort();
           
           return (
             <>
@@ -3108,96 +6613,101 @@ function Admin({user}) {
                 </div>
               </div>
               
-              {/* Partner Breakdown */}
-              <div className="mb-4">
-                <h4 className="text-xs font-bold text-blue-900 mb-2 flex items-center gap-2">
-                  <span>🏢</span> Partner Revenue Breakdown
-                </h4>
-                <div className="space-y-2">
-                  {window.__partners.map(p => {
-                    const pCharges = partnerCharges.filter(c => c.partnerId === p.id);
-                    const pTotal = pCharges.reduce((sum, c) => sum + (c.amount || 0), 0);
-                    if (pCharges.length === 0) return null;
-                    
-                    return (
-                      <div key={p.id} className="bg-white rounded-lg border border-blue-200 p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <div>
-                            <div className="text-xs font-semibold text-gray-900">{p.establishment || p.name}</div>
-                            <div className="text-[10px] text-gray-500">{p.email}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-sm font-bold text-blue-900">{window.GV.fmtMoney(pTotal)}</div>
-                            <div className="text-[10px] text-gray-500">{pCharges.length} charges</div>
-                          </div>
-                        </div>
-                        <details className="text-xs">
-                          <summary className="cursor-pointer text-blue-600 hover:underline text-[10px]">
-                            View transaction history
-                          </summary>
-                          <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
-                            {pCharges.map((c, idx) => (
-                              <div key={idx} className="flex justify-between text-[10px] border-t pt-1">
-                                <span className="text-gray-600">{c.note || 'Charge'}</span>
-                                <span className="font-mono font-semibold">{window.GV.fmtMoney(c.amount)}</span>
-                                <span className="text-gray-400">{new Date(c.ts).toLocaleDateString()}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              
-              {/* Advertiser Breakdown */}
+              {/* City-based Hierarchical Breakdown */}
               <div>
-                <h4 className="text-xs font-bold text-purple-900 mb-2 flex items-center gap-2">
-                  <span>📢</span> Advertiser Revenue Breakdown
+                <h4 className="text-xs font-bold text-green-900 mb-2 flex items-center gap-2">
+                  <span>�️</span> Revenue by City (Drill-down)
                 </h4>
                 <div className="space-y-2">
-                  {advertisers.map(a => {
-                    const aCharges = advertiserCharges.filter(c => c.advertiserId === a.id);
-                    const aTotal = aCharges.reduce((sum, c) => sum + (c.amount || 0), 0);
-                    if (aCharges.length === 0 && !a.freeAdvertising) return null;
+                  {cities.map(city => {
+                    const cityData = chargesByCity[city];
                     
                     return (
-                      <div key={a.id} className="bg-white rounded-lg border border-purple-200 p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <div>
-                            <div className="text-xs font-semibold text-gray-900 flex items-center gap-2">
-                              {a.name}
-                              {a.freeAdvertising && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-300">
-                                  FREE ADS
-                                </span>
-                              )}
+                      <details key={city} className="bg-white rounded-lg border-2 border-green-300 p-3">
+                        <summary className="cursor-pointer font-semibold text-sm text-green-900 hover:text-green-700 flex items-center justify-between">
+                          <span className="flex items-center gap-2">
+                            <span>📍</span> {city}
+                          </span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-gray-600">
+                              Partners: {window.GV.fmtMoney(cityData.partnerTotal)} | 
+                              Advertisers: {window.GV.fmtMoney(cityData.advertiserTotal)}
+                            </span>
+                            <span className="text-sm font-black text-green-900">{window.GV.fmtMoney(cityData.total)}</span>
+                          </div>
+                        </summary>
+                        
+                        <div className="mt-3 space-y-3">
+                          {/* Partners in this city */}
+                          {Object.keys(cityData.partners).length > 0 && (
+                            <div>
+                              <h5 className="text-xs font-bold text-blue-900 mb-2 flex items-center gap-2">
+                                <span>🏢</span> Partners
+                              </h5>
+                              <div className="space-y-2">
+                                {Object.values(cityData.partners).map(({partner, charges, total}) => (
+                                  <details key={partner.id} className="bg-blue-50 rounded border border-blue-200 p-2">
+                                    <summary className="cursor-pointer text-xs font-semibold text-gray-900 hover:text-blue-700 flex items-center justify-between">
+                                      <span>{partner.establishment || partner.name}</span>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-gray-500">{charges.length} charges</span>
+                                        <span className="text-xs font-bold text-blue-900">{window.GV.fmtMoney(total)}</span>
+                                      </div>
+                                    </summary>
+                                    <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+                                      {charges.map((c, idx) => (
+                                        <div key={idx} className="flex justify-between text-[10px] border-t border-blue-100 pt-1">
+                                          <span className="text-gray-600">{c.note || 'Charge'}</span>
+                                          <span className="font-mono font-semibold">{window.GV.fmtMoney(c.amount)}</span>
+                                          <span className="text-gray-400">{new Date(c.ts).toLocaleDateString()}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </details>
+                                ))}
+                              </div>
                             </div>
-                            <div className="text-[10px] text-gray-500">{a.email || 'No email'}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-sm font-bold text-purple-900">{window.GV.fmtMoney(aTotal)}</div>
-                            <div className="text-[10px] text-gray-500">{aCharges.length} charges</div>
-                          </div>
+                          )}
+                          
+                          {/* Advertisers in this city */}
+                          {Object.keys(cityData.advertisers).length > 0 && (
+                            <div>
+                              <h5 className="text-xs font-bold text-purple-900 mb-2 flex items-center gap-2">
+                                <span>📢</span> Advertisers
+                              </h5>
+                              <div className="space-y-2">
+                                {Object.values(cityData.advertisers).map(({advertiser, charges, total}) => (
+                                  <details key={advertiser.id} className="bg-purple-50 rounded border border-purple-200 p-2">
+                                    <summary className="cursor-pointer text-xs font-semibold text-gray-900 hover:text-purple-700 flex items-center justify-between">
+                                      <span className="flex items-center gap-2">
+                                        {advertiser.name}
+                                        {advertiser.freeAdvertising && (
+                                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-300">
+                                            FREE
+                                          </span>
+                                        )}
+                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-gray-500">{charges.length} charges</span>
+                                        <span className="text-xs font-bold text-purple-900">{window.GV.fmtMoney(total)}</span>
+                                      </div>
+                                    </summary>
+                                    <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+                                      {charges.map((c, idx) => (
+                                        <div key={idx} className="flex justify-between text-[10px] border-t border-purple-100 pt-1">
+                                          <span className="text-gray-600">{c.note || 'Unlock'}</span>
+                                          <span className="font-mono font-semibold">{window.GV.fmtMoney(c.amount)}</span>
+                                          <span className="text-gray-400">{new Date(c.ts).toLocaleDateString()}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </details>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        {aCharges.length > 0 && (
-                          <details className="text-xs">
-                            <summary className="cursor-pointer text-purple-600 hover:underline text-[10px]">
-                              View transaction history
-                            </summary>
-                            <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
-                              {aCharges.map((c, idx) => (
-                                <div key={idx} className="flex justify-between text-[10px] border-t pt-1">
-                                  <span className="text-gray-600">{c.note || 'Unlock charge'}</span>
-                                  <span className="font-mono font-semibold">{window.GV.fmtMoney(c.amount)}</span>
-                                  <span className="text-gray-400">{new Date(c.ts).toLocaleDateString()}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </details>
-                        )}
-                      </div>
+                      </details>
                     );
                   })}
                 </div>
@@ -3208,7 +6718,7 @@ function Admin({user}) {
       </div>
       
       {/* Advertiser Management */}
-      <div className="rounded-2xl border p-3 bg-white">
+      <div className="rounded-2xl border p-3 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white">
         <h3 className="font-semibold text-sm mb-2">Advertiser Management</h3>
         <div className="space-y-2">
           {advertisers.map(a => (
@@ -3241,7 +6751,7 @@ function Admin({user}) {
         </div>
       </div>
 
-      <div className="rounded-2xl border p-3 bg-white">
+      <div className="rounded-2xl border p-3 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white">
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-semibold text-sm">Partner Bidding & Cycle Control</h3>
         </div>
@@ -3266,7 +6776,7 @@ function Admin({user}) {
         </div>
       </div>
 
-      <div className="rounded-2xl border p-3 bg-white">
+      <div className="rounded-2xl border p-3 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white">
         <h3 className="font-semibold text-sm mb-2">Trigger Image Management</h3>
         <p className="text-xs text-gray-600 mb-3">
           Partners upload trigger images automatically (no approval needed). Block inappropriate images here.
@@ -3362,7 +6872,7 @@ function Admin({user}) {
       </div>
 
       {/* Individual QR Codes Section */}
-      <div className="rounded-2xl border p-3 bg-white">
+      <div className="rounded-2xl border p-3 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white">
         <h3 className="font-semibold text-sm mb-2">Individual Gnome QR Codes</h3>
         <p className="text-xs text-gray-600 mb-3">
           Print these QR codes on posters for specific gnomes. When participants scan them, they'll see dynamic clues that update automatically when partners upload trigger images.
@@ -3393,7 +6903,7 @@ function Admin({user}) {
         </div>
       </div>
 
-      <div className="rounded-2xl border p-3 bg-white">
+      <div className="rounded-2xl border p-3 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white">
         <h3 className="font-semibold text-sm mb-2">Create Admin Coupons (no card required)</h3>
         <div className="grid md:grid-cols-4 gap-2 text-xs">
           <label className="grid gap-1">Title<input className="border rounded px-2 py-1" value={cTitle} onChange={e=>setCTitle(e.target.value)}/></label>
@@ -3424,7 +6934,7 @@ function Admin({user}) {
         </div>
       </div>
 
-      <div className="rounded-2xl border p-3 bg-white">
+      <div className="rounded-2xl border p-3 bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white">
         <h3 className="font-semibold text-sm mb-2">Moderation</h3>
         <div className="grid md:grid-cols-2 gap-2 text-xs">
           <div className="rounded border p-2">
@@ -3472,12 +6982,73 @@ function Admin({user}) {
 /* =============================================================================
    TABS
 ============================================================================= */
-function Tabs({tab,setTab,role}) {
+function Tabs({tab,setTab,role,user,participantRef}) {
+  const [remainingBonusSpins, setRemainingBonusSpins] = useState(0);
+  
+  // Load bonus spins count for participant view
+  useEffect(() => {
+    if (role === 'participant' || (role === 'admin' && tab === 'participant')) {
+      const userEmail = user?.email;
+      const storageKey = userEmail || window.GV.DEVICE_ID;
+      const BONUS_SPINS_KEY = `bonus_spins_${storageKey}`;
+      
+      const loadBonusSpins = () => {
+        try {
+          const bonusData = JSON.parse(localStorage.getItem(BONUS_SPINS_KEY));
+          if (bonusData && bonusData.remaining) {
+            setRemainingBonusSpins(bonusData.remaining);
+          } else {
+            setRemainingBonusSpins(0);
+          }
+        } catch {
+          setRemainingBonusSpins(0);
+        }
+      };
+      
+      loadBonusSpins();
+      
+      // Listen for bonus push events
+      const handleStorage = (e) => {
+        if (e.key === '__bonus_push' || e.key === BONUS_SPINS_KEY) {
+          loadBonusSpins();
+        }
+      };
+      window.addEventListener('storage', handleStorage);
+      
+      // Also poll for changes (in case storage event doesn't fire)
+      const interval = setInterval(loadBonusSpins, 1000);
+      
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('storage', handleStorage);
+      };
+    }
+  }, [role, tab, user]);
+  
+  const onBonusClick = () => {
+    if (remainingBonusSpins > 0 && participantRef?.current?.openBonusModal) {
+      participantRef.current.openBonusModal();
+    }
+  };
+  
   const btn=(k,label)=>(
     <button onClick={()=>setTab(k)} className={`px-3 py-1.5 rounded-full border text-sm ${tab===k?'bg-black text-white':'bg-white hover:bg-gray-50'}`}>{label}</button>
   );
+  
+  const showBonusButton = (role === 'participant' || (role === 'admin' && tab === 'participant'));
+  
   return (
     <div className="flex items-center gap-2 flex-wrap">
+      {showBonusButton && (
+        <button
+          onClick={onBonusClick}
+          className={`px-3 py-1.5 rounded-full border text-sm ${remainingBonusSpins > 0 ? 'bonus-ready' : 'bonus-disabled'}`}
+          title={remainingBonusSpins > 0 ? `You have ${remainingBonusSpins} bonus spin${remainingBonusSpins > 1 ? 's' : ''}!` : 'Wait for admin to push bonus spins'}
+          disabled={remainingBonusSpins === 0}
+        >
+          🎰 Gnome Bonus{remainingBonusSpins > 0 ? ` (${remainingBonusSpins})` : ''}!
+        </button>
+      )}
       {(role==='participant') && btn('participant','Participant')}
       {(role==='advertiser') && btn('advertiser','Advertiser')}
       {(role==='partners') && btn('partners','Partners')}
@@ -3500,11 +7071,29 @@ export default function App(){
   const [tab,setTab]=useState(role==='participant'?'participant':role);
   const [needSignup,setNeedSignup]=useState(!user?.profileComplete);
   const [, forceUpdate] = useState({});
+  const participantRef = useRef(null); // Ref to trigger bonus modal in Participant component
+  
+  // Dark mode state (persisted in localStorage)
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('__gnomeville_dark_mode');
+    return saved === 'true';
+  });
+  
+  // Save dark mode preference
+  useEffect(() => {
+    localStorage.setItem('__gnomeville_dark_mode', darkMode);
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
 
-  // Check if this is a /gnome/:id URL or /discover
+  // Check if this is a /gnome/:id URL or /discover or bonus subdomain
   const gnomeMatch = window.location.pathname.match(/\/gnome\/(\d+)/);
   const gnomeId = gnomeMatch ? parseInt(gnomeMatch[1], 10) : null;
   const isDiscoverPage = window.location.pathname === '/discover';
+  const isBonusPage = window.location.hostname === 'bonus.gnomeville.app' || window.location.pathname === '/bonus';
 
   // Subscribe to action state changes
   useEffect(() => {
@@ -3521,11 +7110,29 @@ export default function App(){
     setNeedSignup(false);
   }
 
-  // If accessing universal discover page, show location-based finder
-  if (isDiscoverPage) {
-    const DiscoverPage = window.Components.DiscoverPage;
+  // If accessing bonus page, only allow participant or admin roles
+  if (isBonusPage) {
+    if (role !== 'participant' && role !== 'admin') {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 flex items-center justify-center p-6">
+          <div className="max-w-md text-center">
+            <h1 className="text-3xl font-black mb-4">🚫 Access Denied</h1>
+            <p className="text-gray-700 mb-4">
+              The Gnome Bonus page is only available to participants and administrators.
+            </p>
+            <a 
+              href="https://gnomeville.app" 
+              className="inline-block rounded bg-black text-white px-6 py-3 font-semibold hover:bg-gray-800"
+            >
+              Go to Main Site
+            </a>
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-teal-50">
         <GlobalFX />
         <header className="max-w-6xl mx-auto px-4 py-6">
           <div className="flex items-center justify-center">
@@ -3535,7 +7142,23 @@ export default function App(){
             </h1>
           </div>
         </header>
-        <main className="max-w-6xl mx-auto px-4 pb-12">
+        <main>
+          <window.Components.BonusPage user={user} role={role} />
+        </main>
+        <footer className="max-w-6xl mx-auto px-4 py-8 text-center text-[11px] text-gray-500">
+          <span>© {new Date().getFullYear()} WildFlower FL • <a href="https://gnomeville.app" className="underline">gnomeville.app</a></span>
+        </footer>
+      </div>
+    );
+  }
+
+  // If accessing universal discover page, show location-based finder
+  if (isDiscoverPage) {
+    const DiscoverPage = window.Components.DiscoverPage;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
+        <GlobalFX />
+        <main className="max-w-6xl mx-auto px-4 pb-12 pt-6">
           <DiscoverPage />
         </main>
         <footer className="max-w-6xl mx-auto px-4 py-8 text-center text-[11px] text-gray-500">
@@ -3569,7 +7192,11 @@ export default function App(){
   }
 
   return (
-    <div className="min-h-screen">
+    <div className={`min-h-screen transition-colors duration-300 ${
+      darkMode 
+        ? 'dark bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900' 
+        : 'bg-gradient-to-br from-blue-50 to-purple-50'
+    }`}>
       <GlobalFX />
       
       {/* Loading Bar */}
@@ -3585,22 +7212,22 @@ export default function App(){
 
       <header className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <h1 className="text-2xl md:text-3xl font-black flex items-center gap-2">
+          <h1 className={`text-2xl md:text-3xl font-black flex items-center gap-2 ${darkMode ? 'text-white' : ''}`}>
             <img src="https://raw.githubusercontent.com/promos-cmyk/legendary-octo-broccoli/main/wildflower-favicon.png" alt="Wildflower" className="w-28 h-28 object-contain float-gnome"/>
             <span>WildFlower Gnomeville</span>
           </h1>
-          <Tabs tab={tab} setTab={setTab} role={role}/>
+          <Tabs tab={tab} setTab={setTab} role={role} user={user} participantRef={participantRef}/>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 pb-10">
-        {(role==='participant' || role==='admin') && tab==='participant' && <Participant user={user}/>}
-        {(role==='advertiser' || role==='admin') && tab==='advertiser' && <Advertiser user={user}/>}
-        {(role==='partners' || role==='admin') && tab==='partners' && <Partners user={user}/>}
-        {role==='admin' && tab==='admin' && <Admin user={user}/>}
+        {(role==='participant' || role==='admin') && tab==='participant' && <Participant user={user} ref={participantRef} darkMode={darkMode} setDarkMode={setDarkMode}/>}
+        {(role==='advertiser' || role==='admin') && tab==='advertiser' && <Advertiser user={user} darkMode={darkMode}/>}
+        {(role==='partners' || role==='admin') && tab==='partners' && <Partners user={user} darkMode={darkMode}/>}
+        {role==='admin' && tab==='admin' && <Admin user={user} darkMode={darkMode} setDarkMode={setDarkMode}/>}
       </main>
 
-      <footer className="max-w-6xl mx-auto px-4 pb-8 text-[11px] text-gray-500">
+      <footer className={`max-w-6xl mx-auto px-4 pb-8 text-[11px] ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
         <div className="flex items-center justify-between flex-wrap gap-3">
           <span>© {new Date().getFullYear()} WildFlower FL</span>
           <span>gnomeville.app • participants | partners.gnomeville.app • partners | advertisers.gnomeville.app • advertisers | admin.gnomeville.app • admin</span>
