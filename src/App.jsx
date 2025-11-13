@@ -51,6 +51,30 @@ window.GV.USER_KEY  = "__userProfile";
 window.GV.loadUser  = ()=>{try{return JSON.parse(localStorage.getItem(window.GV.USER_KEY)||"null")}catch(e){return null}};
 window.GV.saveUser  = (u)=>localStorage.setItem(window.GV.USER_KEY,JSON.stringify(u));
 
+/* ---------- Gnome Cycle (resets bonus when winners change) ---------- */
+/* The cycle id represents the current bid/assignment period.
+   Admin should bump this when closing bids + assigning new winners. */
+window.GV.getCycleId = () => {
+  // Fallback to persistent value or a monthly key if nothing set yet
+  let cid = localStorage.getItem("__gnome_cycle_id");
+  if (!cid) {
+    cid = `cycle_${new Date().getFullYear()}_${String(new Date().getMonth()+1).padStart(2,'0')}`;
+    localStorage.setItem("__gnome_cycle_id", cid);
+  }
+  return cid;
+};
+
+window.GV.bumpCycle = (label) => {
+  // Generate a fresh cycle id; optional label for audits (e.g., "2025-11 winners")
+  const cid = `cycle_${Date.now()}${label ? `_${label.replace(/[^a-z0-9_-]/gi,'')}` : ""}`;
+  localStorage.setItem("__gnome_cycle_id", cid);
+  // Broadcast so open tabs reset immediately
+  try {
+    window.dispatchEvent(new StorageEvent("storage", { key: "__gnome_cycle_id", newValue: cid }));
+  } catch {}
+  return cid;
+};
+
 /* ---------- Global demo stores ---------- */
 if(!window.__partners) window.__partners=[{id:"par-1",name:"Demo Partner",establishment:"Demo Cafe",address:"123 Beach Ave, Clearwater, FL",cardOnFile:true,blocked:false}];
 if(!window.__advertisers) window.__advertisers=[{id:"adv-1",name:"Demo Advertiser",cardOnFile:true,blocked:false,freeAdvertising:false}];
@@ -1273,26 +1297,41 @@ function Participant({user}){
   const [assignmentsHash, setAssignmentsHash] = useState('');
   const [hintsHash, setHintsHash] = useState('');
   
-  // --- Gnome Bonus: button + slot machine state (persistent) ---
-  const BONUS_KEY = `bonus_state_${window.GV.DEVICE_ID}`;
+  // --- Gnome Bonus: persistent by device AND by cycle ---
+  const CURRENT_CYCLE_ID = window.GV.getCycleId();
+  const BONUS_KEY = `bonus_state_${window.GV.DEVICE_ID}`; // stores {cycleId, ready, spinUsed}
 
-  const [bonusReady, setBonusReady] = useState(() => {
+  function readBonusState() {
     try {
       const saved = JSON.parse(localStorage.getItem(BONUS_KEY));
-      return saved?.ready || false;
-    } catch { return false; }
-  });
-  const [spinUsed, setSpinUsed] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(BONUS_KEY));
-      return saved?.spinUsed || false;
-    } catch { return false; }
-  });
-  const [bonusOpen, setBonusOpen]   = useState(false);
-  const [spinning, setSpinning]     = useState(false);
-  const [reels, setReels]           = useState([0,1,2,3,4]);
-  const [winMsg, setWinMsg]         = useState("");
+      if (!saved || saved.cycleId !== CURRENT_CYCLE_ID) {
+        // Different or missing cycle -> reset
+        return { cycleId: CURRENT_CYCLE_ID, ready: false, spinUsed: false };
+      }
+      return saved;
+    } catch { 
+      return { cycleId: CURRENT_CYCLE_ID, ready: false, spinUsed: false };
+    }
+  }
+
+  const initialBonus = readBonusState();
+
+  const [bonusReady, setBonusReady] = useState(initialBonus.ready);
+  const [spinUsed,   setSpinUsed]   = useState(initialBonus.spinUsed);
+  const [bonusOpen,  setBonusOpen]  = useState(false);
+  const [spinning,   setSpinning]   = useState(false);
+  const [reels,      setReels]      = useState([0,1,2,3,4]);
+  const [winMsg,     setWinMsg]     = useState("");
   const [gameUnlockGuard, setGameUnlockGuard] = useState(false);
+
+  function persistBonusState(ready, used) {
+    try {
+      localStorage.setItem(BONUS_KEY, JSON.stringify({
+        cycleId: CURRENT_CYCLE_ID,
+        ready, spinUsed: used
+      }));
+    } catch(e) { console.warn('persist bonus failed', e); }
+  }
 
   const videoRef=useRef(null), canvasRef=useRef(null), loopRef=useRef(null), streamRef=useRef(null);
   const mapRef=useRef(null), meMarkerRef=useRef(null);
@@ -1367,6 +1406,28 @@ function Participant({user}){
         setTimeout(() => enableMap(), 100);
       }, 500);
     }
+  }, []);
+
+  /* Auto-reset bonus if Admin bumps the cycle while this tab is open */
+  useEffect(() => {
+    function onStorage(e) {
+      if (e.key === "__gnome_cycle_id") {
+        const newId = localStorage.getItem("__gnome_cycle_id");
+        if (newId && newId !== CURRENT_CYCLE_ID) {
+          // Reset local state for the new cycle
+          setBonusReady(false);
+          setSpinUsed(false);
+          try {
+            localStorage.setItem(BONUS_KEY, JSON.stringify({
+              cycleId: newId, ready: false, spinUsed: false
+            }));
+          } catch {}
+          // Optional: toast the user "New hunt cycle started!"
+        }
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   useEffect(()=>{ // load unlocked from memory store
@@ -1462,12 +1523,6 @@ function Participant({user}){
   }
 
   // --- Gnome Bonus Slot Machine Functions ---
-  function persistBonusState(ready, used) {
-    try {
-      localStorage.setItem(BONUS_KEY, JSON.stringify({ ready, spinUsed: used }));
-    } catch(e) { console.warn('persist bonus failed', e); }
-  }
-
   function openBonus() {
     if (!bonusReady || spinUsed) return;
     setBonusOpen(true);
@@ -2965,6 +3020,53 @@ function Admin({user}) {
         )}
         
         {msg && <div className="mt-2 text-xs text-green-700">{msg}</div>}
+      </div>
+      
+      {/* Cycle Management */}
+      <div className="rounded-2xl border-2 border-purple-400 bg-gradient-to-br from-purple-50 to-pink-50 p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-3xl">🔄</span>
+          <div className="flex-1">
+            <h3 className="font-semibold text-sm text-purple-900 mb-1">Close Bids & Start New Cycle</h3>
+            <p className="text-xs text-purple-700">
+              When you finalize winners for the new month, click this to start a new hunt cycle.
+              This resets player "Gnome Bonus!" spins and ties new unlocks to the fresh assignments.
+            </p>
+          </div>
+        </div>
+        
+        <div className="bg-white rounded-lg border border-purple-300 p-3">
+          <div className="text-xs text-gray-600 mb-2">
+            Current Cycle: <span className="font-mono font-semibold text-purple-900">{window.GV.getCycleId()}</span>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <input 
+              id="cycleLabel" 
+              className="flex-1 rounded border border-purple-300 px-2 py-1.5 text-sm" 
+              placeholder="Optional label e.g. 2025-12"
+            />
+            <button
+              className="rounded bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 text-sm font-semibold whitespace-nowrap"
+              onClick={()=>{
+                if (confirm('Are you sure you want to START A NEW CYCLE? This will reset all participant bonus spins.')) {
+                  window.GV.performAction(async () => {
+                    const label = document.getElementById('cycleLabel')?.value || '';
+                    const cid = window.GV.bumpCycle(label);
+                    setMsg(`New cycle started: ${cid}`);
+                    document.getElementById('cycleLabel').value = '';
+                  }, 'New Cycle Started!');
+                }
+              }}
+            >
+              🚀 Start New Cycle
+            </button>
+          </div>
+          
+          <div className="text-[11px] text-gray-500 mt-2">
+            💡 Tip: Use this after assigning new winners or at the start of each month to give all participants a fresh bonus spin opportunity.
+          </div>
+        </div>
       </div>
       
       {/* Financial Ledger */}
