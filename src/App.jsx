@@ -3115,12 +3115,9 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
           <span className="text-3xl">🎯</span>
           <div className="flex-1">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <h3 className={`font-semibold text-sm ${darkMode ? 'text-cyan-300' : 'text-indigo-900'}`}>
-                  Your Progress
-                </h3>
-                <window.Components.CycleBadge />
-              </div>
+              <h3 className={`font-semibold text-sm ${darkMode ? 'text-cyan-300' : 'text-indigo-900'}`}>
+                Your Progress
+              </h3>
               {user && (
                 <div className={`text-[11px] ${darkMode ? 'text-purple-300' : 'text-indigo-600'}`}>
                   Signed in as <span className="font-mono font-semibold">{user.email}</span>
@@ -3437,10 +3434,10 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
         <button 
           className={`w-full rounded-xl px-8 py-4 text-lg font-black transform hover:scale-105 transition-all ${
             darkMode 
-              ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-2xl shadow-orange-500/50 hover:shadow-orange-500/70 animate-pulse'
-              : 'bg-gradient-to-r from-orange-600 to-red-700 text-white shadow-xl shadow-orange-500/30 hover:shadow-orange-500/50'
+              ? 'bg-gradient-to-r from-yellow-500 to-amber-600 text-gray-900 shadow-2xl shadow-yellow-500/50 hover:shadow-yellow-500/70'
+              : 'bg-gradient-to-r from-yellow-400 to-amber-500 text-gray-900 shadow-xl shadow-yellow-500/30 hover:shadow-yellow-500/50'
           }`}
-          style={{textShadow: '2px 2px 4px rgba(0,0,0,0.5)'}}
+          style={{textShadow: '1px 1px 2px rgba(255,255,255,0.3)'}}
           onClick={startHuntingMode}
         >
           🎯 START GNOME HUNTING! 🏹
@@ -3490,8 +3487,8 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
           <button 
             className={`rounded-xl px-6 py-2.5 text-sm font-bold transform hover:scale-105 transition-transform ${
               darkMode 
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/50'
-                : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                ? 'bg-gradient-to-r from-purple-500 to-fuchsia-600 text-white shadow-lg shadow-purple-500/50'
+                : 'bg-gradient-to-r from-purple-600 to-fuchsia-700 text-white shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50'
             }`}
             onClick={()=>{setScanMode('qr'); openScanner();}}
           >
