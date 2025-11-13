@@ -3218,6 +3218,7 @@ export default function App(){
 
   // If accessing universal discover page, show location-based finder
   if (isDiscoverPage) {
+    const DiscoverPage = window.Components.DiscoverPage;
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
         <GlobalFX />
@@ -3230,7 +3231,7 @@ export default function App(){
           </div>
         </header>
         <main className="max-w-6xl mx-auto px-4 pb-12">
-          <window.Components.DiscoverPage />
+          <DiscoverPage />
         </main>
         <Footer />
       </div>
