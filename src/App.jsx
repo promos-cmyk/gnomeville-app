@@ -228,6 +228,9 @@ if(!window.__costPerUnlock) window.__costPerUnlock=1;
 /* NEW: Auction mode toggle - per city. Structure: {cityName: boolean} */
 if(!window.__auctionEnabledByCity) window.__auctionEnabledByCity = {};
 
+/* NEW: Admin claimed gnomes - { gnomeId: { establishment, address, city, imageDataUrl, ts } } */
+if(!window.__adminClaimedGnomes) window.__adminClaimedGnomes = {};
+
 /* NEW: Cycle timing - 30 days per cycle */
 if(!window.__cycleStartTime) window.__cycleStartTime = Date.now();
 if(!window.__cycleDuration) window.__cycleDuration = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
@@ -3358,7 +3361,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
               AR Hunting Mode
             </h3>
             <p className={`text-xs ${darkMode ? 'text-orange-200' : 'text-orange-700'}`}>
-              Pokemon GO style hunting! Scan trigger images to spawn running gnomes, then aim and shoot to capture them. Practice your aim anytime!
+              Scan trigger images to spawn running gnomes, then aim and shoot to capture them. Practice your aim anytime!
             </p>
           </div>
         </div>
@@ -3555,9 +3558,9 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
               ⚠ EJECT
             </button>
             
-            {/* Targeting Reticle - Advanced fighter jet style */}
+            {/* Targeting Reticle - Advanced fighter jet style - SMALLER */}
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-35">
-              <div className="relative w-24 h-24">
+              <div className="relative w-16 h-16">
                 {/* Outer rotating ring */}
                 <div className="absolute inset-0 rounded-full border-2 border-red-500/30 animate-spin" style={{animationDuration: '4s', boxShadow: '0 0 15px rgba(239, 68, 68, 0.4)'}}></div>
                 
@@ -3565,23 +3568,23 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                 <div className="absolute inset-0 rounded-full border-2 border-red-400/50 animate-ping" style={{animationDuration: '2s'}}></div>
                 
                 {/* Main targeting circle */}
-                <div className="absolute inset-3 rounded-full border-2 border-red-500" style={{boxShadow: '0 0 20px rgba(239, 68, 68, 0.8), inset 0 0 15px rgba(239, 68, 68, 0.3)'}}></div>
+                <div className="absolute inset-2 rounded-full border-2 border-red-500" style={{boxShadow: '0 0 20px rgba(239, 68, 68, 0.8), inset 0 0 15px rgba(239, 68, 68, 0.3)'}}></div>
                 
                 {/* Crosshair lines */}
                 <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500" style={{boxShadow: '0 0 10px rgba(239, 68, 68, 1)'}}></div>
                 <div className="absolute left-1/2 top-0 w-0.5 h-full bg-red-500" style={{boxShadow: '0 0 10px rgba(239, 68, 68, 1)'}}></div>
                 
-                {/* Corner brackets */}
-                <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-red-400"></div>
-                <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-red-400"></div>
-                <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-red-400"></div>
-                <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-red-400"></div>
+                {/* Corner brackets - smaller */}
+                <div className="absolute -top-1 -left-1 w-3 h-3 border-t-2 border-l-2 border-red-400"></div>
+                <div className="absolute -top-1 -right-1 w-3 h-3 border-t-2 border-r-2 border-red-400"></div>
+                <div className="absolute -bottom-1 -left-1 w-3 h-3 border-b-2 border-l-2 border-red-400"></div>
+                <div className="absolute -bottom-1 -right-1 w-3 h-3 border-b-2 border-r-2 border-red-400"></div>
                 
                 {/* Center targeting dot */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-red-500 border border-white" style={{boxShadow: '0 0 15px rgba(239, 68, 68, 1)'}}></div>
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-red-500 border border-white" style={{boxShadow: '0 0 15px rgba(239, 68, 68, 1)'}}></div>
                 
-                {/* Range indicator text */}
-                <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-red-400 text-xs font-mono whitespace-nowrap" style={{textShadow: '0 0 10px rgba(239, 68, 68, 0.8)'}}>
+                {/* Range indicator text - further down to avoid overlap */}
+                <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-red-400 text-[10px] font-mono whitespace-nowrap" style={{textShadow: '0 0 10px rgba(239, 68, 68, 0.8)'}}>
                   RNG: 20FT
                 </div>
               </div>
@@ -3654,35 +3657,35 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                   </select>
                 </div>
                 
-                {/* Status messages - Top of dashboard */}
-                <div className="absolute top-8 left-1/2 -translate-x-1/2 text-center min-w-[300px]">
+                {/* Status messages - Higher up to avoid overlaps */}
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 text-center min-w-[300px]">
                   {!gnomeSpotted && !shotFired && (
-                    <div className="text-cyan-300 text-sm font-mono mb-2 animate-pulse" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
+                    <div className="text-cyan-300 text-xs font-mono mb-1 animate-pulse" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
                       SCANNING FOR TARGETS...<br/>
-                      <span className="text-xs text-cyan-400/80">PRACTICE MODE ENABLED</span>
+                      <span className="text-[10px] text-cyan-400/80">PRACTICE MODE ENABLED</span>
                     </div>
                   )}
                   
                   {!gnomeSpotted && shotFired && (
-                    <div className="text-orange-400 text-sm font-mono font-bold mb-2 animate-bounce" style={{textShadow: '0 0 15px rgba(249, 115, 22, 1)'}}>
+                    <div className="text-orange-400 text-sm font-mono font-bold mb-1 animate-bounce" style={{textShadow: '0 0 15px rgba(249, 115, 22, 1)'}}>
                       {selectedWeapon === 'net' ? '⚡ NET DEPLOYED' : selectedWeapon === 'dart' ? '⚡ DART LAUNCHED' : selectedWeapon === 'crossbow' ? '⚡ BOLT FIRED' : '⚡ ARROW RELEASED'}
                     </div>
                   )}
                   
                   {gnomeSpotted && gnomeRunning && !shotFired && (
-                    <div className="text-yellow-300 text-base font-mono font-bold mb-2 animate-pulse" style={{textShadow: '0 0 15px rgba(250, 204, 21, 1)'}}>
+                    <div className="text-yellow-300 text-sm font-mono font-bold mb-1 animate-pulse" style={{textShadow: '0 0 15px rgba(250, 204, 21, 1)'}}>
                       ⚠ TARGET LOCKED ⚠
                     </div>
                   )}
                   
                   {captureSuccess === true && (
-                    <div className="text-green-400 text-base font-mono font-bold mb-2 animate-bounce" style={{textShadow: '0 0 15px rgba(74, 222, 128, 1)'}}>
+                    <div className="text-green-400 text-sm font-mono font-bold mb-1 animate-bounce" style={{textShadow: '0 0 15px rgba(74, 222, 128, 1)'}}>
                       ✓ DIRECT HIT - TARGET NEUTRALIZED
                     </div>
                   )}
                   
                   {captureSuccess === false && (
-                    <div className="text-red-400 text-base font-mono font-bold mb-2 animate-shake" style={{textShadow: '0 0 15px rgba(248, 113, 113, 1)'}}>
+                    <div className="text-red-400 text-sm font-mono font-bold mb-1 animate-shake" style={{textShadow: '0 0 15px rgba(248, 113, 113, 1)'}}>
                       ✗ MISS - TARGET ESCAPED
                     </div>
                   )}
@@ -5944,11 +5947,6 @@ function Admin({user, darkMode, setDarkMode}) {
     }, "Trigger Updated!");
   }
   
-  // Initialize admin claimed gnomes storage
-  if (!window.__adminClaimedGnomes) {
-    window.__adminClaimedGnomes = {}; // { gnomeId: { establishment, address, city, imageDataUrl, ts } }
-  }
-  
   function openClaimModal(gnomeId) {
     setClaimingGnome(gnomeId);
     setClaimEstablishment("");
@@ -6083,12 +6081,18 @@ function Admin({user, darkMode, setDarkMode}) {
       </div>
       
       {/* Admin Gnome Claiming Section */}
-      <div className="rounded-2xl border-2 border-orange-400 bg-gradient-to-r from-orange-50 to-yellow-50 p-4">
+      <div className={`rounded-2xl border-2 p-4 ${
+        darkMode 
+          ? 'border-orange-500 bg-gradient-to-r from-orange-900/30 to-yellow-900/30' 
+          : 'border-orange-400 bg-gradient-to-r from-orange-50 to-yellow-50'
+      }`}>
         <div className="flex items-center gap-3 mb-3">
           <span className="text-3xl">🏆</span>
           <div className="flex-1">
-            <h3 className="font-semibold text-sm text-orange-900 mb-1">Claim Gnomes for Establishments</h3>
-            <p className="text-xs text-orange-700">
+            <h3 className={`font-semibold text-sm mb-1 ${darkMode ? 'text-orange-300' : 'text-orange-900'}`}>
+              Claim Gnomes for Establishments
+            </h3>
+            <p className={`text-xs ${darkMode ? 'text-orange-400' : 'text-orange-700'}`}>
               As admin, you can claim gnomes on behalf of establishments. Once claimed, partners in that city cannot claim these gnomes.
             </p>
           </div>
@@ -6102,8 +6106,12 @@ function Admin({user, darkMode, setDarkMode}) {
             return (
               <div key={gnome.id} className={`relative rounded-lg border-2 p-3 ${
                 isClaimed 
-                  ? 'bg-green-100 border-green-500' 
-                  : 'bg-white border-orange-300 hover:border-orange-500'
+                  ? darkMode
+                    ? 'bg-green-900/40 border-green-500'
+                    : 'bg-green-100 border-green-500'
+                  : darkMode
+                    ? 'bg-gray-800 border-orange-500 hover:border-orange-400'
+                    : 'bg-white border-orange-300 hover:border-orange-500'
               }`}>
                 <img 
                   src={gnome.image} 
@@ -6111,19 +6119,19 @@ function Admin({user, darkMode, setDarkMode}) {
                   className="w-full h-24 object-contain mb-2"
                 />
                 <div className="text-center">
-                  <div className="text-xs font-bold text-gray-900 mb-1">
+                  <div className={`text-xs font-bold mb-1 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                     #{gnome.id} {gnome.name}
                   </div>
                   
                   {isClaimed ? (
                     <div className="space-y-2">
-                      <div className="text-[10px] text-green-800 font-semibold">
+                      <div className={`text-[10px] font-semibold ${darkMode ? 'text-green-400' : 'text-green-800'}`}>
                         ✓ CLAIMED
                       </div>
-                      <div className="text-[10px] text-gray-700">
+                      <div className={`text-[10px] ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                         {claim.establishment}
                       </div>
-                      <div className="text-[9px] text-gray-600">
+                      <div className={`text-[9px] ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                         📍 {claim.city}
                       </div>
                       {claim.imageDataUrl && (
@@ -6134,18 +6142,26 @@ function Admin({user, darkMode, setDarkMode}) {
                         />
                       )}
                       <button
-                        className="w-full rounded bg-red-600 hover:bg-red-700 text-white px-2 py-1 text-[10px] font-semibold"
+                        className="w-full rounded-lg bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-3 py-2 text-xs font-bold shadow-md hover:shadow-lg transition-all"
                         onClick={() => releaseGnomeClaim(gnome.id)}
                       >
-                        Release
+                        🔓 Release
                       </button>
                     </div>
                   ) : (
                     <button
-                      className="w-full rounded bg-orange-600 hover:bg-orange-700 text-white px-2 py-1.5 text-xs font-semibold"
+                      className="w-full rounded-lg font-bold shadow-lg transition-all transform hover:scale-105"
+                      style={{
+                        background: 'linear-gradient(135deg, #ff6b35 0%, #f7931e 100%)',
+                        color: 'white',
+                        padding: '12px 16px',
+                        fontSize: '14px',
+                        border: '2px solid #ff4500',
+                        cursor: 'pointer'
+                      }}
                       onClick={() => openClaimModal(gnome.id)}
                     >
-                      Claim
+                      🏆 CLAIM THIS GNOME
                     </button>
                   )}
                 </div>
@@ -6158,7 +6174,9 @@ function Admin({user, darkMode, setDarkMode}) {
       {/* Claim Modal */}
       {claimingGnome && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+          <div className={`rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto ${
+            darkMode ? 'bg-gray-900' : 'bg-white'
+          }`}>
             <div className="sticky top-0 bg-gradient-to-r from-orange-600 to-red-600 text-white px-6 py-4 rounded-t-2xl">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-bold">
@@ -6180,18 +6198,22 @@ function Admin({user, darkMode, setDarkMode}) {
                   alt="Gnome"
                   className="w-32 h-32 object-contain mx-auto"
                 />
-                <div className="text-xl font-bold text-gray-900 mt-2">
+                <div className={`text-xl font-bold mt-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                   {window.GV.GNOMES.find(g => g.id === claimingGnome)?.name}
                 </div>
               </div>
               
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label className={`block text-sm font-semibold mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                   Establishment Name *
                 </label>
                 <input
                   type="text"
-                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2 focus:border-orange-500 focus:outline-none"
+                  className={`w-full border-2 rounded-lg px-4 py-2 focus:border-orange-500 focus:outline-none ${
+                    darkMode 
+                      ? 'bg-gray-800 border-gray-600 text-white' 
+                      : 'bg-white border-gray-300 text-gray-900'
+                  }`}
                   placeholder="e.g., Beach Bar & Grill"
                   value={claimEstablishment}
                   onChange={(e) => setClaimEstablishment(e.target.value)}
@@ -6199,28 +6221,36 @@ function Admin({user, darkMode, setDarkMode}) {
               </div>
               
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label className={`block text-sm font-semibold mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                   City *
                 </label>
                 <input
                   type="text"
-                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2 focus:border-orange-500 focus:outline-none"
+                  className={`w-full border-2 rounded-lg px-4 py-2 focus:border-orange-500 focus:outline-none ${
+                    darkMode 
+                      ? 'bg-gray-800 border-gray-600 text-white' 
+                      : 'bg-white border-gray-300 text-gray-900'
+                  }`}
                   placeholder="e.g., Clearwater"
                   value={claimCity}
                   onChange={(e) => setClaimCity(e.target.value)}
                 />
-                <div className="text-xs text-gray-500 mt-1">
+                <div className={`text-xs mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                   Partners in this city won't be able to claim this gnome
                 </div>
               </div>
               
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label className={`block text-sm font-semibold mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                   Full Address *
                 </label>
                 <input
                   type="text"
-                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2 focus:border-orange-500 focus:outline-none"
+                  className={`w-full border-2 rounded-lg px-4 py-2 focus:border-orange-500 focus:outline-none ${
+                    darkMode 
+                      ? 'bg-gray-800 border-gray-600 text-white' 
+                      : 'bg-white border-gray-300 text-gray-900'
+                  }`}
                   placeholder="e.g., 123 Beach Ave, Clearwater, FL 33767"
                   value={claimAddress}
                   onChange={(e) => setClaimAddress(e.target.value)}
@@ -6228,13 +6258,17 @@ function Admin({user, darkMode, setDarkMode}) {
               </div>
               
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label className={`block text-sm font-semibold mb-2 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                   Upload Image *
                 </label>
                 <input
                   type="file"
                   accept="image/*"
-                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2 focus:border-orange-500 focus:outline-none"
+                  className={`w-full border-2 rounded-lg px-4 py-2 focus:border-orange-500 focus:outline-none ${
+                    darkMode 
+                      ? 'bg-gray-800 border-gray-600 text-white' 
+                      : 'bg-white border-gray-300 text-gray-900'
+                  }`}
                   onChange={handleClaimImageUpload}
                 />
                 {claimImagePreview && (
