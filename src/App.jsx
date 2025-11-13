@@ -3704,19 +3704,19 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                 <div className="absolute top-4 left-10 w-2 h-2 rounded-full bg-gray-700 border border-gray-600" style={{boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.8)'}}></div>
                 <div className="absolute top-4 right-10 w-2 h-2 rounded-full bg-gray-700 border border-gray-600" style={{boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.8)'}}></div>
                 
-                {/* Weapon selector - Left side of FIRE button */}
-                <div className="absolute bottom-8 left-[calc(50%-240px)] pointer-events-auto">
-                  <div className="text-cyan-300 text-xs font-bold mb-2 tracking-wider text-center" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
+                {/* Weapon selector - Directly LEFT of FIRE button, more centered and visible */}
+                <div className="absolute bottom-12 left-[calc(50%-180px)] pointer-events-auto z-50">
+                  <div className="text-cyan-300 text-xs font-bold mb-1 tracking-wider text-center" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
                     WEAPON
                   </div>
                   <select 
                     value={selectedWeapon}
                     onChange={(e)=>setSelectedWeapon(e.target.value)}
-                    className="bg-gray-900/90 text-cyan-300 border border-cyan-500/50 rounded px-3 py-2 text-sm font-mono shadow-lg backdrop-blur-sm"
+                    className="bg-gray-900 text-cyan-300 border-2 border-cyan-500 rounded px-4 py-2 text-sm font-mono shadow-xl backdrop-blur-sm font-bold"
                     disabled={gnomeRunning || shieldStrength <= 0}
                     style={{
-                      textShadow: '0 0 8px rgba(6, 182, 212, 0.6)',
-                      boxShadow: '0 0 15px rgba(6, 182, 212, 0.4), inset 0 0 10px rgba(0, 0, 0, 0.8)'
+                      textShadow: '0 0 8px rgba(6, 182, 212, 0.8)',
+                      boxShadow: '0 0 25px rgba(6, 182, 212, 0.6), inset 0 0 15px rgba(0, 0, 0, 0.9)'
                     }}
                   >
                     <option value="net">🥅 NET</option>
@@ -3726,51 +3726,100 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                   </select>
                 </div>
                 
-                {/* Status messages - Right side of FIRE button */}
-                <div className="absolute bottom-8 right-[calc(50%-240px)] text-left pointer-events-none min-w-[180px]">
+                {/* Power and Shield meters - Directly RIGHT of FIRE button, more centered and visible */}
+                <div className="absolute bottom-12 right-[calc(50%-180px)] text-right pointer-events-none z-50">
+                  <div className="text-cyan-300 text-xs font-mono mb-2 font-bold" style={{textShadow: '0 0 8px rgba(6, 182, 212, 0.8)'}}>
+                    AMMO: {shieldStrength > 0 ? '∞' : '0'}
+                  </div>
+                  
+                  {/* Power meter */}
+                  <div className="mb-2">
+                    <div className="text-green-400 text-xs font-mono mb-1 font-bold" style={{textShadow: '0 0 10px rgba(74, 222, 128, 0.8)'}}>
+                      PWR:
+                    </div>
+                    <div className="w-32 h-4 bg-gray-900 rounded border-2 border-green-600 overflow-hidden" style={{boxShadow: '0 0 15px rgba(74, 222, 128, 0.4)'}}>
+                      <div 
+                        className={`h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 ${powerFlash ? 'animate-pulse' : ''}`}
+                        style={{
+                          width: '100%',
+                          boxShadow: powerFlash ? '0 0 20px rgba(74, 222, 128, 1)' : '0 0 10px rgba(74, 222, 128, 0.6)'
+                        }}
+                      ></div>
+                    </div>
+                  </div>
+                  
+                  {/* Shield meter */}
+                  <div>
+                    <div className={`text-xs font-mono mb-1 font-bold ${shieldStrength > 50 ? 'text-green-400' : shieldStrength > 25 ? 'text-yellow-400' : 'text-red-400'}`} 
+                         style={{textShadow: `0 0 10px ${shieldStrength > 50 ? 'rgba(74, 222, 128, 0.8)' : shieldStrength > 25 ? 'rgba(250, 204, 21, 0.8)' : 'rgba(248, 113, 113, 0.8)'}`}}>
+                      SHIELD:
+                    </div>
+                    <div className={`w-32 h-4 bg-gray-900 rounded border-2 overflow-hidden ${
+                      shieldStrength > 50 ? 'border-green-600' : shieldStrength > 25 ? 'border-yellow-600' : 'border-red-600'
+                    }`} style={{boxShadow: `0 0 15px ${shieldStrength > 50 ? 'rgba(74, 222, 128, 0.4)' : shieldStrength > 25 ? 'rgba(250, 204, 21, 0.4)' : 'rgba(248, 113, 113, 0.4)'}`}}>
+                      <div 
+                        className={`h-full transition-all duration-500 ${
+                          shieldStrength > 50 ? 'bg-gradient-to-r from-green-500 to-green-400' : 
+                          shieldStrength > 25 ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
+                          'bg-gradient-to-r from-red-500 to-red-400'
+                        }`}
+                        style={{
+                          width: `${shieldStrength}%`,
+                          boxShadow: shieldStrength > 0 ? `0 0 15px ${shieldStrength > 50 ? 'rgba(74, 222, 128, 0.8)' : shieldStrength > 25 ? 'rgba(250, 204, 21, 0.8)' : 'rgba(248, 113, 113, 0.8)'}` : 'none'
+                        }}
+                      ></div>
+                    </div>
+                    <div className={`text-xs font-mono mt-1 font-bold ${shieldStrength > 50 ? 'text-green-400' : shieldStrength > 25 ? 'text-yellow-400' : 'text-red-400'}`}>
+                      {shieldStrength}%
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Status messages - Above FIRE button */}
+                <div className="absolute bottom-52 left-1/2 -translate-x-1/2 text-center pointer-events-none min-w-[250px] z-50">
                   {shieldStrength <= 0 && (
-                    <div className="text-red-500 text-sm font-mono font-bold mb-1 animate-pulse" style={{textShadow: '0 0 15px rgba(239, 68, 68, 1)'}}>
+                    <div className="text-red-500 text-lg font-mono font-bold mb-1 animate-pulse" style={{textShadow: '0 0 20px rgba(239, 68, 68, 1)'}}>
                       ⚠️ NO AMMUNITION<br/>
-                      <span className="text-xs">SCAN IMAGE TO RESTORE</span>
+                      <span className="text-sm">SCAN IMAGE TO RESTORE</span>
                     </div>
                   )}
                   
                   {shieldStrength > 0 && !gnomeSpotted && !shotFired && (
-                    <div className="text-cyan-300 text-xs font-mono mb-1 animate-pulse" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
+                    <div className="text-cyan-300 text-sm font-mono mb-1 animate-pulse" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
                       SCANNING...<br/>
-                      <span className="text-[10px] text-cyan-400/80">PRACTICE MODE</span>
+                      <span className="text-xs text-cyan-400/80">PRACTICE MODE</span>
                     </div>
                   )}
                   
                   {!gnomeSpotted && shotFired && (
-                    <div className="text-orange-400 text-sm font-mono font-bold mb-1 animate-bounce" style={{textShadow: '0 0 15px rgba(249, 115, 22, 1)'}}>
+                    <div className="text-orange-400 text-lg font-mono font-bold mb-1 animate-bounce" style={{textShadow: '0 0 20px rgba(249, 115, 22, 1)'}}>
                       {selectedWeapon === 'net' ? '⚡ NET OUT' : selectedWeapon === 'dart' ? '⚡ DART FLY' : selectedWeapon === 'crossbow' ? '⚡ BOLT GO' : '⚡ ARROW FLY'}
                     </div>
                   )}
                   
                   {gnomeSpotted && gnomeRunning && !shotFired && !gnomeShootingBack && (
-                    <div className="text-yellow-300 text-sm font-mono font-bold mb-1 animate-pulse" style={{textShadow: '0 0 15px rgba(250, 204, 21, 1)'}}>
+                    <div className="text-yellow-300 text-lg font-mono font-bold mb-1 animate-pulse" style={{textShadow: '0 0 20px rgba(250, 204, 21, 1)'}}>
                       ⚠️ TARGET LOCKED
                     </div>
                   )}
                   
                   {gnomeShootingBack && (
-                    <div className="text-red-400 text-sm font-mono font-bold mb-1 animate-pulse" style={{textShadow: '0 0 15px rgba(248, 113, 113, 1)'}}>
+                    <div className="text-red-400 text-lg font-mono font-bold mb-1 animate-pulse" style={{textShadow: '0 0 20px rgba(248, 113, 113, 1)'}}>
                       🔥 GNOME ATTACKING!
                     </div>
                   )}
                   
                   {captureSuccess === true && (
-                    <div className="text-green-400 text-sm font-mono font-bold mb-1 animate-bounce" style={{textShadow: '0 0 15px rgba(74, 222, 128, 1)'}}>
+                    <div className="text-green-400 text-lg font-mono font-bold mb-1 animate-bounce" style={{textShadow: '0 0 20px rgba(74, 222, 128, 1)'}}>
                       ✓ DIRECT HIT!<br/>
-                      <span className="text-xs">TARGET DOWN</span>
+                      <span className="text-sm">TARGET DOWN</span>
                     </div>
                   )}
                   
                   {captureSuccess === false && (
-                    <div className="text-red-400 text-sm font-mono font-bold mb-1 animate-shake" style={{textShadow: '0 0 15px rgba(248, 113, 113, 1)'}}>
+                    <div className="text-red-400 text-lg font-mono font-bold mb-1 animate-shake" style={{textShadow: '0 0 20px rgba(248, 113, 113, 1)'}}>
                       ✗ MISS!<br/>
-                      <span className="text-xs">ESCAPED</span>
+                      <span className="text-sm">ESCAPED</span>
                     </div>
                   )}
                 </div>
@@ -3815,51 +3864,6 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
                   {/* Button label */}
                   <div className="text-center mt-2 text-red-400 text-xs font-mono tracking-wider" style={{textShadow: '0 0 10px rgba(239, 68, 68, 0.8)'}}>
                     {shieldStrength <= 0 ? 'OUT OF AMMO' : gnomeRunning ? 'WEAPONS ARMED' : 'TRAINING MODE'}
-                  </div>
-                </div>
-                
-                {/* Right info panel - Power and Shield meters */}
-                <div className="absolute right-8 bottom-8 text-right">
-                  <div className="text-cyan-300 text-xs font-mono mb-2" style={{textShadow: '0 0 8px rgba(6, 182, 212, 0.6)'}}>
-                    AMMO: {shieldStrength > 0 ? '∞' : '0'}
-                  </div>
-                  
-                  {/* Power meter */}
-                  <div className="mb-2">
-                    <div className="text-green-400 text-xs font-mono mb-1" style={{textShadow: '0 0 8px rgba(74, 222, 128, 0.6)'}}>
-                      PWR:
-                    </div>
-                    <div className="w-24 h-3 bg-gray-800 rounded border border-gray-600 overflow-hidden">
-                      <div 
-                        className={`h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 ${powerFlash ? 'animate-pulse' : ''}`}
-                        style={{
-                          width: '100%',
-                          boxShadow: powerFlash ? '0 0 15px rgba(74, 222, 128, 1)' : 'none'
-                        }}
-                      ></div>
-                    </div>
-                  </div>
-                  
-                  {/* Shield meter */}
-                  <div>
-                    <div className={`text-xs font-mono mb-1 ${shieldStrength > 50 ? 'text-green-400' : shieldStrength > 25 ? 'text-yellow-400' : 'text-red-400'}`} 
-                         style={{textShadow: `0 0 8px ${shieldStrength > 50 ? 'rgba(74, 222, 128, 0.6)' : shieldStrength > 25 ? 'rgba(250, 204, 21, 0.6)' : 'rgba(248, 113, 113, 0.6)'}`}}>
-                      SHIELD:
-                    </div>
-                    <div className="w-24 h-3 bg-gray-800 rounded border border-gray-600 overflow-hidden">
-                      <div 
-                        className={`h-full transition-all duration-500 ${
-                          shieldStrength > 50 ? 'bg-gradient-to-r from-green-500 to-green-400' : 
-                          shieldStrength > 25 ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
-                          'bg-gradient-to-r from-red-500 to-red-400'
-                        }`}
-                        style={{
-                          width: `${shieldStrength}%`,
-                          boxShadow: shieldStrength > 0 ? `0 0 10px ${shieldStrength > 50 ? 'rgba(74, 222, 128, 0.8)' : shieldStrength > 25 ? 'rgba(250, 204, 21, 0.8)' : 'rgba(248, 113, 113, 0.8)'}` : 'none'
-                        }}
-                      ></div>
-                    </div>
-                    <div className="text-xs font-mono text-gray-400 mt-1">{shieldStrength}%</div>
                   </div>
                 </div>
               </div>
