@@ -226,10 +226,24 @@ if(!window.__cycleId) window.__cycleId=1;
 if(!window.__costPerUnlock) window.__costPerUnlock=1;
 
 /* NEW: Auction mode toggle - per city. Structure: {cityName: boolean} */
-if(!window.__auctionEnabledByCity) window.__auctionEnabledByCity = {};
+if(!window.__auctionEnabledByCity) {
+  const saved = localStorage.getItem('__auctionEnabledByCity');
+  window.__auctionEnabledByCity = saved ? JSON.parse(saved) : {};
+}
 
 /* NEW: Admin claimed gnomes - { gnomeId: { establishment, address, city, imageDataUrl, ts } } */
-if(!window.__adminClaimedGnomes) window.__adminClaimedGnomes = {};
+if(!window.__adminClaimedGnomes) {
+  const saved = localStorage.getItem('__adminClaimedGnomes');
+  window.__adminClaimedGnomes = saved ? JSON.parse(saved) : {};
+  console.log('📦 Loaded __adminClaimedGnomes from localStorage:', window.__adminClaimedGnomes);
+}
+
+/* NEW: Gnome assignments - must be loaded from localStorage to share across users */
+if(!window.__gnomeAssignments) {
+  const saved = localStorage.getItem('__gnomeAssignments');
+  window.__gnomeAssignments = saved ? JSON.parse(saved) : {};
+  console.log('📦 Loaded __gnomeAssignments from localStorage:', window.__gnomeAssignments);
+}
 
 /* NEW: Cycle timing - 30 days per cycle */
 if(!window.__cycleStartTime) window.__cycleStartTime = Date.now();
@@ -239,7 +253,11 @@ if(!window.__cycleDuration) window.__cycleDuration = 30 * 24 * 60 * 60 * 1000; /
 if(!window.__activeParticipants) window.__activeParticipants = {};
 
 /* NEW: Trigger image stores - images are auto-active, admin can block them */
-if(!window.__triggerImages) window.__triggerImages = {}; // {gnomeId: {dataUrl, aHash, partnerId, blocked, ts}}
+if(!window.__triggerImages) {
+  const saved = localStorage.getItem('__triggerImages');
+  window.__triggerImages = saved ? JSON.parse(saved) : {};
+  console.log('📦 Loaded __triggerImages from localStorage:', Object.keys(window.__triggerImages||{}).map(k => ({gnomeId: k, hasHash: !!window.__triggerImages[k].aHash})));
+} // {gnomeId: {dataUrl, aHash, partnerId, blocked, ts}}
 
 /* NEW: Celebration events for partner wins & advertiser unlocks */
 if(!window.__partnerCelebrations) window.__partnerCelebrations = [];
@@ -514,6 +532,9 @@ window.GV.autoCloseBids = function() {
   window.__deviceCouponGrants = {};
   window.__cycleId = (window.__cycleId||1)+1;
   window.__cycleStartTime = Date.now(); // Reset cycle timer
+  
+  // Save gnome assignments to localStorage
+  localStorage.setItem('__gnomeAssignments', JSON.stringify(window.__gnomeAssignments));
 };
 
 // Check for auto-close every minute
@@ -1945,6 +1966,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
   const huntingStreamRef = useRef(null);
   const gnomePositionRef = useRef({ x: 50, y: 50 }); // percentage position
   const gnomeDirectionRef = useRef({ dx: 2, dy: 1.5 }); // movement vector
+  const gnomeRunningRef = useRef(false); // Track if gnome is currently running (for animation loop)
   const animationFrameRef = useRef(null);
   const gnomeShootTimerRef = useRef(null);
   
@@ -2406,7 +2428,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
     const foundIds = found.map(f => f.gnomeId);
     if(!foundIds.includes(gnomeId)) {
       const newFound = [...found, {gnomeId, method: 'trigger', ts: Date.now()}];
-      saveFound(newFound);
+      setFound(newFound);
     }
     window.__scans.push({gnomeId,ts:Date.now(),deviceId:window.GV.DEVICE_ID,userEmail:user?.email});
     const g = window.GV.GNOMES.find(x=>x.id===gnomeId);
@@ -2542,7 +2564,17 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
       return;
     }
 
-    const targetList = Object.entries(window.__triggerImages||{}).map(([gid,obj])=>({gnomeId:Number(gid),hash:obj.aHash})).filter(t=>!!t.hash);
+    // Only include trigger images for gnomes that are:
+    // 1. Active (assignment.active === true)
+    // 2. Not blocked (blocked !== true)
+    // 3. Have a valid hash
+    const targetList = Object.entries(window.__triggerImages||{})
+      .filter(([gid, obj]) => {
+        const assignment = window.__gnomeAssignments[Number(gid)];
+        return obj.aHash && !obj.blocked && assignment?.active;
+      })
+      .map(([gid, obj]) => ({gnomeId: Number(gid), hash: obj.aHash}));
+      
     const THRESHOLD = 10; // hamming distance threshold (lower = stricter)
 
     const tick=()=>{
@@ -2638,6 +2670,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
     setHuntingMode(false);
     setGnomeSpotted(null);
     setGnomeRunning(false);
+    gnomeRunningRef.current = false; // Reset ref
     setShotFired(false);
     setCaptureSuccess(null);
   }
@@ -2652,15 +2685,38 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
     video.play();
     
     const ctx=canvas.getContext('2d');
+    
+    // Only include trigger images for gnomes that are:
+    // 1. Active (assignment.active === true)
+    // 2. Not blocked (blocked !== true)
+    // 3. Have a valid hash
     const targetList = Object.entries(window.__triggerImages||{})
-      .map(([gid,obj])=>({gnomeId:Number(gid),hash:obj.aHash}))
-      .filter(t=>!!t.hash);
+      .filter(([gid, obj]) => {
+        const assignment = window.__gnomeAssignments[Number(gid)];
+        return obj.aHash && !obj.blocked && assignment?.active;
+      })
+      .map(([gid, obj]) => ({gnomeId: Number(gid), hash: obj.aHash}));
+    
+    console.log('AR Hunting Mode - Target List:', targetList.length, 'active gnomes');
+    console.log('AR Hunting Mode - Trigger Images:', Object.keys(window.__triggerImages||{}));
+    console.log('AR Hunting Mode - Gnome Assignments:', window.__gnomeAssignments);
+    
+    if(targetList.length === 0) {
+      console.warn('⚠️ WARNING: No active gnomes to hunt! Upload trigger images and ensure gnomes are active.');
+    }
+      
     const THRESHOLD = 10;
+    let frameCount = 0;
 
     const tick=()=>{
+      frameCount++;
+      if(frameCount % 60 === 0) {
+        console.log(`AR Scanning... frame ${frameCount}, video ready: ${video.readyState === video.HAVE_ENOUGH_DATA}, gnomeRunning: ${gnomeRunningRef.current}`);
+      }
+      
       if(video.readyState===video.HAVE_ENOUGH_DATA){
-        // Check if gnome is already spotted and running
-        if(!gnomeRunning){
+        // Check if gnome is already spotted and running (use ref to avoid closure issues)
+        if(!gnomeRunningRef.current){
           // Scan for trigger image
           const size=8;
           canvas.width=size; canvas.height=size;
@@ -2686,8 +2742,12 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
             while(bits){ count++; bits &= (bits-1n); }
             if(count <= THRESHOLD){
               // Trigger detected! Spawn running gnome
+              console.log('🎯 AR MATCH DETECTED! GnomeId:', t.gnomeId, 'Distance:', count);
               const gnome = window.GV.GNOMES.find(g=>g.id===t.gnomeId);
-              if(gnome && !found.find(f=>f.gnomeId===gnome.id)){
+              console.log('Found gnome object:', gnome);
+              console.log('gnomeRunningRef.current:', gnomeRunningRef.current);
+              if(gnome){
+                console.log('Calling spawnRunningGnome...');
                 spawnRunningGnome(gnome);
               }
               break;
@@ -2701,6 +2761,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
   }
 
   function spawnRunningGnome(gnome){
+    console.log('🏃 spawnRunningGnome called with:', gnome);
     // Start gnome at random edge position
     const edges = [
       {x: Math.random()*100, y: -5}, // top
@@ -2710,6 +2771,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
     ];
     const startPos = edges[Math.floor(Math.random()*edges.length)];
     
+    console.log('Gnome starting at position:', startPos);
     gnomePositionRef.current = startPos;
     
     // Random direction toward center with some variance
@@ -2718,10 +2780,13 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
     const dy = (centerY - startPos.y) * 0.02 + (Math.random()-0.5)*2;
     gnomeDirectionRef.current = {dx, dy};
     
+    console.log('Setting gnomeSpotted and gnomeRunning...');
     setGnomeSpotted(gnome);
     setGnomeRunning(true);
+    gnomeRunningRef.current = true; // Set ref for animation loop
     setGnomeShootingBack(false);
     
+    console.log('Starting shoot timer and animation...');
     // After 10 seconds, gnome starts shooting back
     gnomeShootTimerRef.current = setTimeout(() => {
       setGnomeShootingBack(true);
@@ -2730,6 +2795,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
     
     // Start gnome movement animation
     animateGnomeMovement();
+    console.log('spawnRunningGnome complete!');
   }
   
   function startGnomeShooting() {
@@ -2849,6 +2915,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
         // HIT! Capture successful
         setCaptureSuccess(true);
         setGnomeRunning(false);
+        gnomeRunningRef.current = false; // Reset ref
         setGnomeShootingBack(false);
         if(gnomeShootTimerRef.current) {
           clearTimeout(gnomeShootTimerRef.current);
@@ -2866,6 +2933,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
         setCaptureSuccess(false);
         setTimeout(()=>{
           setGnomeRunning(false);
+          gnomeRunningRef.current = false; // Reset ref
           setGnomeSpotted(null);
           setShotFired(false);
           setCaptureSuccess(null);
@@ -5150,6 +5218,9 @@ function Partners({user, darkMode}){
         }
       }
       
+      // Save to localStorage
+      localStorage.setItem('__gnomeAssignments', JSON.stringify(window.__gnomeAssignments));
+      
       setMsg(`Gnome #${gid} is now ${a.active?'Active':'Inactive'}.`);
     }, a?.active ? "Gnome Activated!" : "Gnome Deactivated!");
   }
@@ -5184,6 +5255,10 @@ function Partners({user, darkMode}){
               blocked: false, 
               ts: Date.now()
             };
+            
+            // Save to localStorage
+            localStorage.setItem('__triggerImages', JSON.stringify(window.__triggerImages));
+            
             // Generate riddle for this gnome
             window.__gnomeRiddles[Number(gnomeId)] = window.GV.generateRiddle(Number(gnomeId), croppedDataUrl);
             setMsg(`Trigger image for #${gnomeId} is now ACTIVE! (auto-cropped to 800x800 for optimal scanning)`);
@@ -6000,6 +6075,9 @@ function Admin({user, darkMode, setDarkMode}) {
       window.__cycleId = (window.__cycleId||1)+1;
       window.__cycleStartTime = Date.now(); // Reset cycle timer
       
+      // Save gnome assignments to localStorage
+      localStorage.setItem('__gnomeAssignments', JSON.stringify(window.__gnomeAssignments));
+      
       // Clear riddles - will regenerate when partners activate
       window.__gnomeRiddles = {};
       
@@ -6039,6 +6117,10 @@ function Admin({user, darkMode, setDarkMode}) {
       const triggerImg = window.__triggerImages[gnomeId];
       if (!triggerImg) return;
       triggerImg.blocked = flag;
+      
+      // Save to localStorage
+      localStorage.setItem('__triggerImages', JSON.stringify(window.__triggerImages));
+      
       setMsg(`${flag?'Blocked':'Unblocked'} trigger image for gnome #${gnomeId}.`);
     }, flag ? "Trigger Image Blocked!" : "Trigger Image Unblocked!");
   }
@@ -6053,6 +6135,15 @@ function Admin({user, darkMode, setDarkMode}) {
           try{
             const hash=await window.GV.aHashFromDataUrl(dataUrl);
             window.__triggerImages[gnomeId]={ dataUrl, aHash:hash };
+            
+            // Save to localStorage
+            localStorage.setItem('__triggerImages', JSON.stringify(window.__triggerImages));
+            
+            console.log('💾 Saved trigger image to localStorage:');
+            console.log('  Gnome:', gnomeId);
+            console.log('  Hash:', hash);
+            console.log('  All trigger images:', Object.keys(window.__triggerImages));
+            
             setMsg(`Trigger updated for #${gnomeId}.`);
             resolve();
           }catch(err){ setMsg("Failed to process image."); resolve(); }
@@ -6125,7 +6216,16 @@ function Admin({user, darkMode, setDarkMode}) {
           window.__gnomeAssignments[claimingGnome].establishment = claimEstablishment;
           window.__gnomeAssignments[claimingGnome].address = claimAddress;
           
-          setMsg(`Gnome #${claimingGnome} claimed for ${claimEstablishment} in ${claimCity}. Partners in ${claimCity} can no longer claim this gnome.`);
+          // Save to localStorage so it persists and is shared across users
+          localStorage.setItem('__adminClaimedGnomes', JSON.stringify(window.__adminClaimedGnomes));
+          localStorage.setItem('__gnomeAssignments', JSON.stringify(window.__gnomeAssignments));
+          
+          console.log('💾 Saved admin claim to localStorage:');
+          console.log('  Gnome:', claimingGnome);
+          console.log('  Assignment:', window.__gnomeAssignments[claimingGnome]);
+          console.log('  All assignments:', window.__gnomeAssignments);
+          
+          setMsg(`Gnome #${claimingGnome} claimed for ${claimEstablishment} in ${claimCity}. Partners in ${claimCity} can now longer claim this gnome.`);
           closeClaimModal();
           resolve();
         };
@@ -6149,6 +6249,10 @@ function Admin({user, darkMode, setDarkMode}) {
         delete window.__gnomeAssignments[gnomeId].address;
         window.__gnomeAssignments[gnomeId].active = false; // Deactivate until a partner claims it
       }
+      
+      // Save to localStorage
+      localStorage.setItem('__adminClaimedGnomes', JSON.stringify(window.__adminClaimedGnomes));
+      localStorage.setItem('__gnomeAssignments', JSON.stringify(window.__gnomeAssignments));
       
       setMsg(`Gnome #${gnomeId} released from ${claim?.establishment || 'admin claim'}. Partners can now claim it.`);
       forceUpdate({});
@@ -6527,6 +6631,10 @@ function Admin({user, darkMode, setDarkMode}) {
                       previousPartnerId: window.__gnomeAssignments[g.id]?.partnerId || null
                     };
                   });
+                  
+                  // Save to localStorage
+                  localStorage.setItem('__gnomeAssignments', JSON.stringify(window.__gnomeAssignments));
+                  
                   setMsg('All gnome assignments have been cleared. Partners can now select freely.');
                 }, 'Assignments Cleared!');
               }
