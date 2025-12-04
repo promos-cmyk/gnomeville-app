@@ -2828,7 +2828,8 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
     const speed = 1.5; // base speed multiplier
     
     const move = ()=>{
-      if(!gnomeRunning) return;
+      // Use ref instead of state to avoid closure issues
+      if(!gnomeRunningRef.current) return;
       
       const pos = gnomePositionRef.current;
       const dir = gnomeDirectionRef.current;
