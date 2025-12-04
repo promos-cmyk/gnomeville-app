@@ -6114,12 +6114,16 @@ function Admin({user, darkMode, setDarkMode}) {
             ts: Date.now()
           };
           
-          // Also update the assignment to mark as admin-claimed
+          // Also update the assignment to mark as admin-claimed and ACTIVE
           if (!window.__gnomeAssignments[claimingGnome]) {
             window.__gnomeAssignments[claimingGnome] = {};
           }
           window.__gnomeAssignments[claimingGnome].adminClaimed = true;
           window.__gnomeAssignments[claimingGnome].claimedCity = claimCity;
+          window.__gnomeAssignments[claimingGnome].active = true; // Make it active for participants
+          window.__gnomeAssignments[claimingGnome].partnerId = 'admin'; // Set admin as the partner
+          window.__gnomeAssignments[claimingGnome].establishment = claimEstablishment;
+          window.__gnomeAssignments[claimingGnome].address = claimAddress;
           
           setMsg(`Gnome #${claimingGnome} claimed for ${claimEstablishment} in ${claimCity}. Partners in ${claimCity} can no longer claim this gnome.`);
           closeClaimModal();
@@ -6140,6 +6144,10 @@ function Admin({user, darkMode, setDarkMode}) {
       if (window.__gnomeAssignments[gnomeId]) {
         delete window.__gnomeAssignments[gnomeId].adminClaimed;
         delete window.__gnomeAssignments[gnomeId].claimedCity;
+        delete window.__gnomeAssignments[gnomeId].partnerId;
+        delete window.__gnomeAssignments[gnomeId].establishment;
+        delete window.__gnomeAssignments[gnomeId].address;
+        window.__gnomeAssignments[gnomeId].active = false; // Deactivate until a partner claims it
       }
       
       setMsg(`Gnome #${gnomeId} released from ${claim?.establishment || 'admin claim'}. Partners can now claim it.`);
