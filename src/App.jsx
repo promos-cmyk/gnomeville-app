@@ -1970,6 +1970,10 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
   const animationFrameRef = useRef(null);
   const gnomeShootTimerRef = useRef(null);
   
+  // Device orientation for AR positioning
+  const deviceOrientationRef = useRef({ alpha: 0, beta: 0, gamma: 0 }); // Device rotation
+  const gnomeWorldPositionRef = useRef({ yaw: 0, pitch: 0, distance: 3 }); // Gnome position in 3D space (yaw/pitch in degrees, distance in meters)
+  
   // --- Gnome Bonus: persistent by device AND by cycle ---
   const CURRENT_CYCLE_ID = window.GV.getCycleId();
   const userEmail = user?.email;
@@ -2655,10 +2659,34 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
       const stream=await navigator.mediaDevices.getUserMedia(constraints);
       huntingStreamRef.current=stream;
       setHuntingMode(true);
+      
+      // Request device orientation permission on iOS
+      if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+        DeviceOrientationEvent.requestPermission()
+          .then(permissionState => {
+            if(permissionState === 'granted'){
+              window.addEventListener('deviceorientation', handleDeviceOrientation);
+            }
+          })
+          .catch(console.error);
+      } else {
+        // Non-iOS or no permission needed
+        window.addEventListener('deviceorientation', handleDeviceOrientation);
+      }
+      
       setTimeout(startHuntingScanLoop,30);
     }catch(e){ 
       alert("Camera access denied or unavailable."); 
     }
+  }
+  
+  function handleDeviceOrientation(event){
+    // Update device orientation for AR positioning
+    deviceOrientationRef.current = {
+      alpha: event.alpha || 0, // yaw (compass direction) 0-360
+      beta: event.beta || 0,   // pitch (tilt forward/back) -180 to 180
+      gamma: event.gamma || 0  // roll (tilt left/right) -90 to 90
+    };
   }
 
   function stopHuntingMode(){
@@ -2667,6 +2695,10 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
       huntingStreamRef.current.getTracks().forEach(t=>t.stop()); 
       huntingStreamRef.current=null; 
     }
+    
+    // Remove device orientation listener
+    window.removeEventListener('deviceorientation', handleDeviceOrientation);
+    
     setHuntingMode(false);
     setGnomeSpotted(null);
     setGnomeRunning(false);
@@ -2762,23 +2794,26 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
 
   function spawnRunningGnome(gnome){
     console.log('🏃 spawnRunningGnome called with:', gnome);
-    // Start gnome at random edge position
-    const edges = [
-      {x: Math.random()*100, y: -5}, // top
-      {x: Math.random()*100, y: 105}, // bottom
-      {x: -5, y: Math.random()*100}, // left
-      {x: 105, y: Math.random()*100} // right
-    ];
-    const startPos = edges[Math.floor(Math.random()*edges.length)];
     
-    console.log('Gnome starting at position:', startPos);
-    gnomePositionRef.current = startPos;
+    // Spawn gnome in 3D space around the user
+    // Random angle from current camera view (-180 to 180 degrees from current yaw)
+    const currentYaw = deviceOrientationRef.current.alpha || 0;
+    const angleOffset = (Math.random() - 0.5) * 360; // Random direction
+    const yaw = currentYaw + angleOffset;
     
-    // Random direction toward center with some variance
-    const centerX = 50, centerY = 50;
-    const dx = (centerX - startPos.x) * 0.02 + (Math.random()-0.5)*2;
-    const dy = (centerY - startPos.y) * 0.02 + (Math.random()-0.5)*2;
-    gnomeDirectionRef.current = {dx, dy};
+    // Pitch: slightly above or below eye level (-20 to 20 degrees)
+    const pitch = (Math.random() - 0.5) * 40;
+    
+    // Distance: 2-5 meters away
+    const distance = 2 + Math.random() * 3;
+    
+    console.log('Gnome spawned at yaw:', yaw, 'pitch:', pitch, 'distance:', distance);
+    gnomeWorldPositionRef.current = { yaw, pitch, distance };
+    
+    // Random movement speed in 3D space
+    const speedYaw = (Math.random() - 0.5) * 3; // degrees per frame
+    const speedPitch = (Math.random() - 0.5) * 2;
+    gnomeDirectionRef.current = { dx: speedYaw, dy: speedPitch };
     
     console.log('Setting gnomeSpotted and gnomeRunning...');
     setGnomeSpotted(gnome);
@@ -2825,36 +2860,64 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
   }
 
   function animateGnomeMovement(){
-    const speed = 1.5; // base speed multiplier
+    const speed = 1; // degrees per frame
     
     const move = ()=>{
       // Use ref instead of state to avoid closure issues
       if(!gnomeRunningRef.current) return;
       
-      const pos = gnomePositionRef.current;
+      const worldPos = gnomeWorldPositionRef.current;
       const dir = gnomeDirectionRef.current;
       
-      // Update position
-      pos.x += dir.dx * speed;
-      pos.y += dir.dy * speed;
+      // Update gnome's position in 3D space (it moves around independently)
+      worldPos.yaw += dir.dx * speed;
+      worldPos.pitch += dir.dy * speed;
       
-      // Bounce off edges and change direction randomly
-      if(pos.x < 0 || pos.x > 100){
-        dir.dx = -dir.dx + (Math.random()-0.5)*0.5;
-        pos.x = Math.max(0, Math.min(100, pos.x));
-      }
-      if(pos.y < 0 || pos.y > 100){
-        dir.dy = -dir.dy + (Math.random()-0.5)*0.5;
-        pos.y = Math.max(0, Math.min(100, pos.y));
+      // Keep pitch reasonable (don't flip upside down)
+      worldPos.pitch = Math.max(-60, Math.min(60, worldPos.pitch));
+      
+      // Normalize yaw to 0-360
+      while(worldPos.yaw < 0) worldPos.yaw += 360;
+      while(worldPos.yaw >= 360) worldPos.yaw -= 360;
+      
+      // Random direction changes - gnome moves erratically
+      if(Math.random() < 0.05){
+        dir.dx += (Math.random()-0.5)*2;
+        dir.dy += (Math.random()-0.5)*1.5;
+        // Limit speed
+        dir.dx = Math.max(-3, Math.min(3, dir.dx));
+        dir.dy = Math.max(-2, Math.min(2, dir.dy));
       }
       
-      // Random direction changes
-      if(Math.random() < 0.02){
-        dir.dx += (Math.random()-0.5)*1;
-        dir.dy += (Math.random()-0.5)*1;
-      }
+      // Calculate screen position based on device orientation
+      const currentYaw = deviceOrientationRef.current.alpha || 0;
+      const currentPitch = deviceOrientationRef.current.beta || 0;
       
-      gnomePositionRef.current = {...pos};
+      // Calculate relative angle from camera view
+      let deltaYaw = worldPos.yaw - currentYaw;
+      // Normalize to -180 to 180
+      while(deltaYaw > 180) deltaYaw -= 360;
+      while(deltaYaw < -180) deltaYaw += 360;
+      
+      const deltaPitch = worldPos.pitch - (currentPitch - 90); // beta is 0-180, convert to -90 to 90
+      
+      // Convert angles to screen position
+      // Assume 60 degree FOV horizontally and vertically
+      const fovX = 60;
+      const fovY = 60;
+      
+      // Map angle to screen percentage (-fov/2 to fov/2 => 0% to 100%)
+      let screenX = 50 + (deltaYaw / fovX) * 100;
+      let screenY = 50 + (deltaPitch / fovY) * 100;
+      
+      // Clamp to screen bounds with some margin
+      screenX = Math.max(-20, Math.min(120, screenX));
+      screenY = Math.max(-20, Math.min(120, screenY));
+      
+      // Update screen position ref
+      gnomePositionRef.current = { x: screenX, y: screenY };
+      
+      gnomeWorldPositionRef.current = {...worldPos};
       gnomeDirectionRef.current = {...dir};
       
       // Force re-render to update gnome position
@@ -3614,8 +3677,8 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
       {huntingMode && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="fixed inset-0 bg-black overflow-hidden">
-            {/* Camera feed - Space view through cockpit */}
-            <video ref={huntingVideoRef} className="absolute inset-0 w-full h-full object-cover opacity-50" autoPlay muted playsInline></video>
+            {/* Camera feed - Full opacity for realistic AR view */}
+            <video ref={huntingVideoRef} className="absolute inset-0 w-full h-full object-cover" autoPlay muted playsInline></video>
             <canvas ref={huntingCanvasRef} style={{display:'none'}}></canvas>
             
             {/* Space atmosphere overlay */}
@@ -3679,6 +3742,10 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
               <div className="text-green-400 text-xs font-mono" style={{textShadow: '0 0 10px rgba(74, 222, 128, 0.8)'}}>
                 ● SYSTEMS ONLINE
               </div>
+              {/* Device orientation debug info */}
+              <div className="text-cyan-300 text-[10px] font-mono" style={{textShadow: '0 0 10px rgba(6, 182, 212, 0.8)'}}>
+                Y:{Math.round(deviceOrientationRef.current.alpha)}° P:{Math.round(deviceOrientationRef.current.beta - 90)}°
+              </div>
             </div>
             
             {/* Top right - Exit button (styled as emergency eject) */}
@@ -3725,17 +3792,18 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
               </div>
             </div>
             
-            {/* Running gnome - Enhanced with neon glow */}
+            {/* Running gnome - Enhanced with neon glow - LARGER for better visibility */}
             {gnomeSpotted && gnomeRunning && (
               <img 
                 src={gnomeSpotted.image}
                 alt="Gnome"
-                className="absolute w-24 h-24 object-contain animate-bounce pointer-events-none z-5"
+                className="absolute w-40 h-40 object-contain pointer-events-none z-30"
                 style={{
                   left: `${gnomePositionRef.current.x}%`,
                   top: `${gnomePositionRef.current.y}%`,
                   transform: 'translate(-50%, -50%)',
-                  filter: 'drop-shadow(0 0 20px rgba(255, 255, 0, 1)) drop-shadow(0 0 40px rgba(255, 255, 0, 0.6)) brightness(1.2) contrast(1.1)'
+                  filter: 'drop-shadow(0 0 20px rgba(255, 255, 0, 1)) drop-shadow(0 0 40px rgba(255, 255, 0, 0.6)) brightness(1.3) contrast(1.2)',
+                  transition: 'left 0.1s ease-out, top 0.1s ease-out'
                 }}
               />
             )}
@@ -3743,7 +3811,7 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
             {/* Gnome target indicator ring */}
             {gnomeSpotted && gnomeRunning && (
               <div 
-                className="absolute w-32 h-32 rounded-full border-4 border-yellow-400 pointer-events-none z-4 animate-pulse"
+                className="absolute w-48 h-48 rounded-full border-4 border-yellow-400 pointer-events-none z-29 animate-pulse"
                 style={{
                   left: `${gnomePositionRef.current.x}%`,
                   top: `${gnomePositionRef.current.y}%`,

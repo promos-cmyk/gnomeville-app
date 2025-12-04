@@ -31,11 +31,12 @@ npx vercel --prod
 After deployment, go to your project settings:
 
 1. **Go to**: Vercel Dashboard → Your Project → Settings → Domains
-2. **Add these 4 domains**:
+2. **Add these 5 domains**:
    - `gnomeville.app` (main participant site)
    - `admin.gnomeville.app` (admin dashboard)
    - `partners.gnomeville.app` (partner dashboard)
    - `advertisers.gnomeville.app` (advertiser dashboard)
+   - `bonus.gnomeville.app` (bonus slot machine - participant/admin only)
 
 Vercel will show you the DNS records to add.
 
@@ -79,6 +80,14 @@ Value: cname.vercel-dns.com
 TTL: 600
 ```
 
+#### For Bonus Subdomain:
+```
+Type: CNAME
+Name: bonus
+Value: cname.vercel-dns.com
+TTL: 600
+```
+
 #### For WWW (Optional):
 ```
 Type: CNAME
@@ -104,6 +113,8 @@ After DNS propagates, test each URL:
 - https://gnomeville.app (Participant view)
 - https://admin.gnomeville.app (Admin dashboard)
 - https://partners.gnomeville.app (Partner dashboard)
+- https://advertisers.gnomeville.app (Advertiser dashboard)
+- https://bonus.gnomeville.app (Bonus slot machine - participant/admin only)
 - https://advertisers.gnomeville.app (Advertiser dashboard)
 
 The app will automatically detect the subdomain and show the correct role interface!
