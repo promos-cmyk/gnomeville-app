@@ -2655,28 +2655,34 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
   // === HUNTING MODE FUNCTIONS ===
   async function startHuntingMode(){
     try{
+      // Request device orientation permission FIRST on iOS (must be from user gesture)
+      if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+        try {
+          const permissionState = await DeviceOrientationEvent.requestPermission();
+          if(permissionState === 'granted'){
+            window.addEventListener('deviceorientation', handleDeviceOrientation);
+            console.log('✅ Device orientation permission granted');
+          } else {
+            console.warn('⚠️ Device orientation permission denied - AR will use 2D positioning');
+          }
+        } catch(err) {
+          console.warn('⚠️ Device orientation request failed:', err);
+        }
+      } else {
+        // Non-iOS or no permission needed
+        window.addEventListener('deviceorientation', handleDeviceOrientation);
+        console.log('✅ Device orientation enabled (no permission needed)');
+      }
+      
+      // Now request camera
       const constraints={video:{facingMode:"environment"}};
       const stream=await navigator.mediaDevices.getUserMedia(constraints);
       huntingStreamRef.current=stream;
       setHuntingMode(true);
       
-      // Request device orientation permission on iOS
-      if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
-        DeviceOrientationEvent.requestPermission()
-          .then(permissionState => {
-            if(permissionState === 'granted'){
-              window.addEventListener('deviceorientation', handleDeviceOrientation);
-            }
-          })
-          .catch(console.error);
-      } else {
-        // Non-iOS or no permission needed
-        window.addEventListener('deviceorientation', handleDeviceOrientation);
-      }
-      
       setTimeout(startHuntingScanLoop,30);
     }catch(e){ 
-      alert("Camera access denied or unavailable."); 
+      alert("Camera access denied or unavailable: " + e.message); 
     }
   }
   
@@ -2893,22 +2899,35 @@ const Participant = React.forwardRef(function Participant({user, darkMode, setDa
       const currentYaw = deviceOrientationRef.current.alpha || 0;
       const currentPitch = deviceOrientationRef.current.beta || 0;
       
-      // Calculate relative angle from camera view
-      let deltaYaw = worldPos.yaw - currentYaw;
-      // Normalize to -180 to 180
-      while(deltaYaw > 180) deltaYaw -= 360;
-      while(deltaYaw < -180) deltaYaw += 360;
+      // Check if we have real orientation data (not just zeros)
+      const hasOrientation = deviceOrientationRef.current.alpha !== 0 || deviceOrientationRef.current.beta !== 0;
       
-      const deltaPitch = worldPos.pitch - (currentPitch - 90); // beta is 0-180, convert to -90 to 90
+      let screenX, screenY;
       
-      // Convert angles to screen position
-      // Assume 60 degree FOV horizontally and vertically
-      const fovX = 60;
-      const fovY = 60;
-      
-      // Map angle to screen percentage (-fov/2 to fov/2 => 0% to 100%)
-      let screenX = 50 + (deltaYaw / fovX) * 100;
-      let screenY = 50 + (deltaPitch / fovY) * 100;
+      if (hasOrientation) {
+        // Use 3D AR positioning with device orientation
+        // Calculate relative angle from camera view
+        let deltaYaw = worldPos.yaw - currentYaw;
+        // Normalize to -180 to 180
+        while(deltaYaw > 180) deltaYaw -= 360;
+        while(deltaYaw < -180) deltaYaw += 360;
+        
+        const deltaPitch = worldPos.pitch - (currentPitch - 90); // beta is 0-180, convert to -90 to 90
+        
+        // Convert angles to screen position
+        // Assume 60 degree FOV horizontally and vertically
+        const fovX = 60;
+        const fovY = 60;
+        
+        // Map angle to screen percentage (-fov/2 to fov/2 => 0% to 100%)
+        screenX = 50 + (deltaYaw / fovX) * 100;
+        screenY = 50 + (deltaPitch / fovY) * 100;
+      } else {
+        // Fallback to simple 2D movement when orientation not available
+        // Map world yaw/pitch directly to screen position
+        screenX = ((worldPos.yaw % 360) / 360) * 120 - 10;
+        screenY = ((worldPos.pitch + 90) / 180) * 120 - 10;
+      }
       
       // Clamp to screen bounds with some margin
       screenX = Math.max(-20, Math.min(120, screenX));
